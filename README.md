@@ -37,7 +37,7 @@ O sistema conta com tela de login dedicada e **ocultamento real de telas** na ba
 - **Idempotência de Comandas e Notas Fiscais**:
   - Se um pão já possui comanda aberta no forno, clicar em **"Pedir"** novamente apenas **reforça a quantidade** na comanda existente em vez de duplicar pedidos.
   - Notas fiscais possuem chave única (`NF-xxxx`), bloqueando lançamentos duplicados.
-- **Atalho de Clique Triplo (`+10`)**: Clicar 3 vezes rapidamente no botão `+` incrementa `+10 unidades` de uma só vez para agilizar a contagem de pães.
+- **Atalho de Clique Triplo (`+10` e `-10`)**: Clicar 3 vezes rapidamente no botão `+` ou `-` incrementa `+10` ou reduz `-10 unidades` de uma só vez para agilizar a contagem de pães.
 - **Trava contra Variação Brusca**: Alterações manuais maiores que 50 unidades exigem confirmação em modal de segurança.
 - **Persistência Automática (`LocalStorage`)**: Todas as contagens, comandas, notas, perdas e sangrias ficam salvas no navegador, com botão de **Reset Fábrica** na tela de login para restaurar o estado inicial de demonstração.
 

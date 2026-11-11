@@ -52,12 +52,16 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sliders,
+  Smartphone,
   Snowflake,
   Store,
   Sun,
   Sunset,
+  Trash2,
   TrendingDown,
   TrendingUp,
+  UserPlus,
+  Users,
   Wallet,
   Warehouse,
   X,
@@ -83,7 +87,8 @@ type IdTela =
   | 'relatorios'
   | 'painel-dono'
   | 'passagem-turno'
-  | 'catalogo';
+  | 'catalogo'
+  | 'usuarios';
 
 type EscopoPdf = 'executivo' | 'balanco' | 'reposicoes' | 'turno';
 type AbaRelatorio = 'repostos' | 'perdas' | 'turnos' | 'balanco';
@@ -123,7 +128,9 @@ interface Perfil {
   id: string;
   papel: Papel;
   nome: string;
+  login: string;
   cargo: string;
+  telefone: string;
   pinPadrao: string;
   foco: string;
   corBadge: string;
@@ -252,6 +259,7 @@ interface CaixaDia {
 /** Tudo o que é salvo no localStorage. */
 interface EstadoPersistido {
   produtos: Produto[];
+  perfis?: Perfil[];
   comandasCozinha: Comanda[];
   tarefasInsumos: TarefaInsumo[];
   historicoReposicoes: RegistroMovimento[];
@@ -261,6 +269,18 @@ interface EstadoPersistido {
   turnoAtual: string;
   caixaDia: CaixaDia;
   salvoEm?: string;
+}
+
+interface FormUsuario {
+  nome: string;
+  login: string;
+  cargo: string;
+  telefone: string;
+  pinPadrao: string;
+  papel: Papel;
+  lancarNotaFiscal: boolean;
+  gerirCatalogoCustos: boolean;
+  verFinanceiroCompleto: boolean;
 }
 
 interface Toast {
@@ -546,7 +566,7 @@ const CATEGORIA_MOVIMENTO = {
   notaFiscal: 'Entrada Nota Fiscal ➔ Saldo Depósito',
 } as const;
 
-const TELAS_EXCLUSIVAS_DONO: IdTela[] = ['relatorios', 'painel-dono'];
+const TELAS_EXCLUSIVAS_DONO: IdTela[] = ['relatorios', 'painel-dono', 'usuarios'];
 
 const SETOR_PADRAO_POR_FLUXO: Record<TipoFluxo, string> = {
   cozinha: 'Forno Principal',
@@ -797,9 +817,11 @@ const PERFIS_RBAC: Perfil[] = [
     id: 'vitrine',
     papel: 'vitrine',
     nome: 'Clara Mendes',
+    login: 'clara',
     cargo: 'Funcionária 1 · Balcão & Vitrine',
+    telefone: '(68) 99912-3401',
     pinPadrao: '1111',
-    foco: 'Acesso Restrito (3 abas): Conferência da vitrine, Cozinha 80mm e Depósito➔Vitrine. Telas de Nota Depósito, Relatórios e Dono/PDF são completamente ocultadas.',
+    foco: 'Confere a vitrine, envia comandas de produção para a Cozinha e transfere frios/bebidas do Depósito para a vitrine.',
     corBadge: 'bg-[#E6F0E8] text-[#2F5938] border-[#C5DEC9]',
     permissoes: {
       conferirVitrine: true,
@@ -815,9 +837,11 @@ const PERFIS_RBAC: Perfil[] = [
     id: 'estoque',
     papel: 'estoque',
     nome: 'Mateus Rocha',
+    login: 'mateus',
     cargo: 'Estoque & Compras (Depósito)',
+    telefone: '(68) 99945-8820',
     pinPadrao: '2222',
-    foco: 'Acesso Estoque (4 abas): Conferência da vitrine, Cozinha 80mm, Depósito➔Vitrine e Lançamento de Notas Fiscais no Depósito. Sem acesso a Relatórios ou Painel da Dona.',
+    foco: 'Lança Notas Fiscais (NF-e) no saldo do Depósito, gerencia o Catálogo operacional e abastece a vitrine.',
     corBadge: 'bg-[#E6EEF2] text-[#264E63] border-[#C2D7E2]',
     permissoes: {
       conferirVitrine: true,
@@ -833,9 +857,11 @@ const PERFIS_RBAC: Perfil[] = [
     id: 'proprietario',
     papel: 'proprietario',
     nome: 'Dona Maria / Seu Antônio',
+    login: 'dona',
     cargo: 'Proprietária · Acesso Total (Admin)',
+    telefone: '(68) 99901-5500',
     pinPadrao: '1234',
-    foco: 'Acesso Irrestrito (6 abas): Gestão completa da padaria, Nota Depósito, Relatórios Financeiros, Margens de Lucro, Gestão de Custos e Emissão de Relatório Oficial em PDF A4.',
+    foco: 'Visão Geral executiva 360°, Margem de Lucro, Custos, Criação de Acessos para Novos Usuários e Emissão de PDF Oficial A4.',
     corBadge: 'bg-[#362218] text-[#FFFDFB] border-[#362218]',
     permissoes: {
       conferirVitrine: true,
@@ -848,6 +874,18 @@ const PERFIS_RBAC: Perfil[] = [
     },
   },
 ];
+
+const FORM_USUARIO_VAZIO: FormUsuario = {
+  nome: '',
+  login: '',
+  cargo: 'Atendente de Balcão & Vitrine',
+  telefone: '(68) 999',
+  pinPadrao: '3333',
+  papel: 'vitrine',
+  lancarNotaFiscal: false,
+  gerirCatalogoCustos: false,
+  verFinanceiroCompleto: false,
+};
 
 const COMANDAS_COZINHA_INICIAIS: Comanda[] = [
   {
@@ -1467,6 +1505,22 @@ function useSkinaStore() {
 
   // ---------------------------------------------------------------- dados persistidos
   const [produtos, setProdutos] = useState<Produto[]>(() => salvo.produtos ?? PRODUTOS_INICIAIS);
+  const [perfis, setPerfis] = useState<Perfil[]>(() => {
+    if (!salvo.perfis || salvo.perfis.length === 0) return PERFIS_RBAC;
+    return salvo.perfis.map((p) => ({
+      ...p,
+      login:
+        p.login ||
+        (p.id === 'vitrine'
+          ? 'clara'
+          : p.id === 'estoque'
+          ? 'mateus'
+          : p.id === 'proprietario'
+          ? 'dona'
+          : p.nome.split(' ')[0].toLowerCase()),
+      telefone: p.telefone || '(68) 99900-0000',
+    }));
+  });
   const [comandasCozinha, setComandasCozinha] = useState<Comanda[]>(
     () => salvo.comandasCozinha ?? COMANDAS_COZINHA_INICIAIS
   );
@@ -1493,6 +1547,7 @@ function useSkinaStore() {
   const [escopoPdf, setEscopoPdf] = useState<EscopoPdf | null>(null); // null = modal fechado
   const [variacaoBrusca, setVariacaoBrusca] = useState<VariacaoBrusca | null>(null);
   const [badgeMaisDezId, setBadgeMaisDezId] = useState<string | null>(null);
+  const [badgeMenosDezId, setBadgeMenosDezId] = useState<string | null>(null);
 
   const timerToastRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const timerBadgeRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -1550,6 +1605,7 @@ function useSkinaStore() {
   useEffect(() => {
     const payload: EstadoPersistido = {
       produtos,
+      perfis,
       comandasCozinha,
       tarefasInsumos,
       historicoReposicoes,
@@ -1567,6 +1623,7 @@ function useSkinaStore() {
     }
   }, [
     produtos,
+    perfis,
     comandasCozinha,
     tarefasInsumos,
     historicoReposicoes,
@@ -1581,6 +1638,9 @@ function useSkinaStore() {
   useEffect(() => {
     if (!perfilAtivo) return;
     if (telaAtual === 'nota-fiscal' && !perfilAtivo.permissoes.lancarNotaFiscal) {
+      setTelaAtual('conferencia');
+    }
+    if (telaAtual === 'catalogo' && !perfilAtivo.permissoes.gerirCatalogoCustos) {
       setTelaAtual('conferencia');
     }
     if (TELAS_EXCLUSIVAS_DONO.includes(telaAtual) && !ehProprietario) {
@@ -1618,11 +1678,12 @@ function useSkinaStore() {
     dispararToast(`Sessão iniciada: ${perfil.nome} (${perfil.cargo})`);
   }
 
-  /** Alterna o perfil sem sair (o efeito de RBAC acima cuida de redirecionar). */
+  /** Alterna o perfil (Modo Desenvolvedor): quando seleciona a Dona, abre diretamente a Visão Geral. */
   function trocarPerfil(idPerfil: string) {
-    const novo = PERFIS_RBAC.find((p) => p.id === idPerfil);
+    const novo = perfis.find((p) => p.id === idPerfil);
     if (!novo) return;
     setPerfilAtivo(novo);
+    setTelaAtual(novo.papel === 'proprietario' ? 'painel-dono' : 'conferencia');
     dispararToast(`Perfil alternado para ${novo.nome} (${novo.cargo})`);
   }
 
@@ -1634,7 +1695,11 @@ function useSkinaStore() {
   /** Muda de aba bloqueando telas não autorizadas para o perfil atual (RBAC estrito). */
   function navegar(tela: IdTela) {
     if (tela === 'nota-fiscal' && !perfilAtivo?.permissoes.lancarNotaFiscal) {
-      dispararToast('🔒 Acesso Restrito: Apenas Mateus (Estoque) e Dona têm acesso ao Nota Depósito.', 'erro');
+      dispararToast('🔒 Acesso Restrito: Apenas Estoque e Proprietária têm acesso ao Nota Depósito.', 'erro');
+      return;
+    }
+    if (tela === 'catalogo' && !perfilAtivo?.permissoes.gerirCatalogoCustos) {
+      dispararToast('🔒 Acesso Restrito: Seu perfil não possui permissão para mexer no Catálogo.', 'erro');
       return;
     }
     if (TELAS_EXCLUSIVAS_DONO.includes(tela) && !ehProprietario) {
@@ -1648,6 +1713,7 @@ function useSkinaStore() {
   function restaurarDadosDeFabrica() {
     localStorage.removeItem(STORAGE_KEY);
     setProdutos(PRODUTOS_INICIAIS);
+    setPerfis(PERFIS_RBAC);
     setComandasCozinha(COMANDAS_COZINHA_INICIAIS);
     setTarefasInsumos(TAREFAS_INSUMOS_INICIAIS);
     setHistoricoReposicoes(HISTORICO_REPOSICOES_INICIAL);
@@ -1670,29 +1736,57 @@ function useSkinaStore() {
     dispararToast(`🖨️ [Térmica 80mm ESC/POS] Comanda #${comanda.id} impressa na Cozinha!`);
   }
 
-  // ---------------------------------------------------------------- clique triplo (+10)
+  // ---------------------------------------------------------------- clique triplo (+10 e -10)
   /**
    * Cada clique soma `passo`. Se 3 cliques acontecerem em até 600 ms entre si,
    * o 3º clique completa o total para +10 (os dois primeiros já somaram 2×passo).
    */
   function incrementarComCliqueTriplo(id: string, passo: number, aplicar: (delta: number) => void) {
     const agora = Date.now();
-    const anterior = cliquesRef.current[id];
+    const chave = `mais:${id}`;
+    const anterior = cliquesRef.current[chave];
     const emSequencia = anterior !== undefined && agora - anterior.ultimoClique <= JANELA_CLIQUE_TRIPLO_MS;
     const contagem = emSequencia ? anterior.contagem + 1 : 1;
 
     if (contagem < 3) {
-      cliquesRef.current[id] = { contagem, ultimoClique: agora };
+      cliquesRef.current[chave] = { contagem, ultimoClique: agora };
       aplicar(passo);
       return;
     }
 
-    delete cliquesRef.current[id];
+    delete cliquesRef.current[chave];
     aplicar(Math.max(0, arredondar(10 - passo * 2)));
+    setBadgeMenosDezId(null);
     setBadgeMaisDezId(id);
     clearTimeout(timerBadgeRef.current);
     timerBadgeRef.current = setTimeout(() => setBadgeMaisDezId(null), DURACAO_BADGE_MAIS_DEZ_MS);
     dispararToast('⚡ Clique triplo detectado: total de +10 adicionado!');
+  }
+
+  /**
+   * Cada clique subtrai `passo`. Se 3 cliques acontecerem em até 600 ms entre si,
+   * o 3º clique completa a redução total para -10 (os dois primeiros já subtraíram 2×passo).
+   */
+  function decrementarComCliqueTriplo(id: string, passo: number, aplicar: (deltaNegativo: number) => void) {
+    const agora = Date.now();
+    const chave = `menos:${id}`;
+    const anterior = cliquesRef.current[chave];
+    const emSequencia = anterior !== undefined && agora - anterior.ultimoClique <= JANELA_CLIQUE_TRIPLO_MS;
+    const contagem = emSequencia ? anterior.contagem + 1 : 1;
+
+    if (contagem < 3) {
+      cliquesRef.current[chave] = { contagem, ultimoClique: agora };
+      aplicar(-passo);
+      return;
+    }
+
+    delete cliquesRef.current[chave];
+    aplicar(-Math.max(0, arredondar(10 - passo * 2)));
+    setBadgeMaisDezId(null);
+    setBadgeMenosDezId(id);
+    clearTimeout(timerBadgeRef.current);
+    timerBadgeRef.current = setTimeout(() => setBadgeMenosDezId(null), DURACAO_BADGE_MAIS_DEZ_MS);
+    dispararToast('⚡ Clique triplo detectado: total de -10 diminuído!');
   }
 
   // ---------------------------------------------------------------- vitrine
@@ -2113,6 +2207,111 @@ function useSkinaStore() {
     return null;
   }
 
+  // ---------------------------------------------------------------- gestão de usuários (exclusivo dona)
+  /** Cria ou edita um perfil de acesso. Exclusivo da Proprietária (Dona). */
+  function salvarUsuario(form: FormUsuario, idEditando: string | null): string | null {
+    if (!ehProprietario) return 'Apenas a Proprietária (Dona) pode criar ou editar acessos.';
+    const nome = form.nome.trim();
+    const cargo = form.cargo.trim();
+    const telefone = form.telefone.trim();
+    const login = (form.login.trim() || nome.split(' ')[0] || 'usuario').toLowerCase().replace(/\s+/g, '');
+    const pinPadrao = form.pinPadrao.trim() || '1234';
+
+    if (nome.length < 2) return 'Informe o nome completo do colaborador (mínimo 2 letras).';
+    if (cargo.length < 2) return 'Informe o cargo ou função do colaborador.';
+    if (telefone.replace(/\D/g, '').length < 8) return 'Informe um número de celular válido para envio do código.';
+    if (pinPadrao.length < 4) return 'A senha / PIN deve ter pelo menos 4 dígitos.';
+
+    const ehDona = form.papel === 'proprietario' || form.verFinanceiroCompleto;
+    const papelEfetivo: Papel = ehDona
+      ? 'proprietario'
+      : form.lancarNotaFiscal || form.gerirCatalogoCustos
+      ? 'estoque'
+      : 'vitrine';
+
+    const corBadge =
+      papelEfetivo === 'proprietario'
+        ? 'bg-[#362218] text-[#FFFDFB] border-[#362218]'
+        : papelEfetivo === 'estoque'
+        ? 'bg-[#E6EEF2] text-[#264E63] border-[#C2D7E2]'
+        : 'bg-[#E6F0E8] text-[#2F5938] border-[#C5DEC9]';
+
+    const permissoesUsuario: Permissoes = {
+      conferirVitrine: true,
+      pedirCozinha: true,
+      concluirCozinha: true,
+      transferirInsumos: true,
+      lancarNotaFiscal: ehDona ? true : form.lancarNotaFiscal,
+      gerirCatalogoCustos: ehDona ? true : form.gerirCatalogoCustos,
+      verFinanceiroCompleto: ehDona,
+    };
+
+    const telasLiberadas = [
+      permissoesUsuario.verFinanceiroCompleto && 'Visão Geral',
+      'Conferência',
+      'Cozinha 80mm',
+      'Vitrine',
+      permissoesUsuario.lancarNotaFiscal && 'Nota Depósito',
+      permissoesUsuario.gerirCatalogoCustos && 'Catálogo',
+      permissoesUsuario.verFinanceiroCompleto && 'Relatórios & Acessos',
+    ].filter(Boolean);
+
+    const focoGerado = `Acesso liberado para: ${telasLiberadas.join(', ')}. Login: "${login}" · Celular: ${telefone}.`;
+
+    if (idEditando) {
+      setPerfis((prev) =>
+        atualizarPorId(prev, idEditando, (u) => {
+          const atualizado: Perfil = {
+            ...u,
+            nome,
+            login,
+            cargo,
+            telefone,
+            pinPadrao,
+            papel: papelEfetivo,
+            corBadge,
+            foco: focoGerado,
+            permissoes: permissoesUsuario,
+          };
+          if (perfilAtivo?.id === idEditando) {
+            setPerfilAtivo(atualizado);
+          }
+          return atualizado;
+        })
+      );
+      dispararToast(`✅ Acesso de ${nome} atualizado com sucesso!`);
+    } else {
+      const novoPerfil: Perfil = {
+        id: gerarIdUnico('usr'),
+        nome,
+        login,
+        cargo,
+        telefone,
+        papel: papelEfetivo,
+        pinPadrao,
+        corBadge,
+        foco: focoGerado,
+        permissoes: permissoesUsuario,
+      };
+      setPerfis((prev) => [...prev, novoPerfil]);
+      dispararToast(`✅ Novo acesso criado para ${nome} (Login: ${login} · Senha: ${pinPadrao})!`);
+    }
+    return null;
+  }
+
+  /** Remove um usuário cadastrado (impede remover o próprio perfil logado ou deixar sem proprietário). */
+  function removerUsuario(idUsuario: string) {
+    if (!ehProprietario) return;
+    if (perfilAtivo?.id === idUsuario) {
+      dispararToast('Você não pode excluir o perfil que está logado no momento.', 'erro');
+      return;
+    }
+    const alvo = perfis.find((p) => p.id === idUsuario);
+    if (!alvo) return;
+    setPerfis((prev) => prev.filter((p) => p.id !== idUsuario));
+    dispararToast(`🗑️ Acesso de ${alvo.nome} removido.`);
+  }
+
   // ---------------------------------------------------------------- PDF A4 (dono)
   function abrirPdf(escopo: EscopoPdf = 'executivo') {
     if (ehProprietario) setEscopoPdf(escopo);
@@ -2143,6 +2342,7 @@ function useSkinaStore() {
   return {
     // estado
     perfilAtivo,
+    perfis,
     telaAtual,
     abaRelatorio,
     produtos,
@@ -2158,6 +2358,7 @@ function useSkinaStore() {
     escopoPdf,
     variacaoBrusca,
     badgeMaisDezId,
+    badgeMenosDezId,
     comandaEmImpressao,
     // derivados
     ehProprietario,
@@ -2181,6 +2382,7 @@ function useSkinaStore() {
     fecharImpressaoComanda,
     imprimirComandaTermica,
     incrementarComCliqueTriplo,
+    decrementarComCliqueTriplo,
     definirSaldoVitrine,
     ajustarSaldoVitrine,
     confirmarVariacaoBrusca,
@@ -2199,6 +2401,8 @@ function useSkinaStore() {
     registrarSangria,
     registrarPassagemTurno,
     salvarProduto,
+    salvarUsuario,
+    removerUsuario,
     abrirPdf,
     fecharPdf,
     imprimirPdf,
@@ -2274,7 +2478,7 @@ function Chip({
   return (
     <span
       className={cx(
-        'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border',
+        'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 whitespace-nowrap',
         TONS[tom],
         className
       )}
@@ -2383,6 +2587,7 @@ function Modal({
     <div
       role="dialog"
       aria-modal="true"
+      style={{ zIndex: 80 }}
       className="fixed inset-0 bg-[#2C1E18]/55 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn"
       onClick={(e) => e.target === e.currentTarget && onFechar()}
     >
@@ -2437,7 +2642,7 @@ function IconeProduto({
   );
 }
 
-/** Notificação flutuante exibida no topo da tela. */
+/** Notificação flutuante exibida sempre à frente no topo da tela. */
 function ToastGlobal() {
   const { toast } = useSkina();
   if (!toast) return null;
@@ -2445,15 +2650,18 @@ function ToastGlobal() {
   const Icone = ehErro ? ShieldAlert : CheckCircle2;
 
   return (
-    <div className="fixed top-4 inset-x-4 max-w-md mx-auto z-50 pointer-events-none animate-slideDown">
+    <div
+      style={{ zIndex: 70 }}
+      className="fixed top-3 inset-x-3 sm:inset-x-4 max-w-md mx-auto z-50 pointer-events-none animate-slideDown"
+    >
       <div
         className={cx(
-          'px-4 py-3 rounded-2xl shadow-xl border flex items-center gap-2.5 text-xs font-semibold text-white',
+          'px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-2xl shadow-2xl border flex items-center gap-2.5 text-xs font-semibold text-white',
           ehErro ? 'bg-[#8C2D19] border-[#B84A27]' : 'bg-[#2C1E18] border-[#4A3228]'
         )}
       >
         <Icone className={cx('w-4 h-4 shrink-0', ehErro ? 'text-[#F8E2C8]' : 'text-[#86EFAC]')} />
-        <span>{toast.texto}</span>
+        <span className="leading-snug">{toast.texto}</span>
       </div>
     </div>
   );
@@ -2464,51 +2672,103 @@ function ToastGlobal() {
 // ============================================================================
 
 // ----------------------------------------------------------------------------
-// 8.0 TELA DE LOGIN & AUTENTICAÇÃO COM SUGESTÃO DE SENHAS
+// 8.0 TELA DE LOGIN OFICIAL + PAINEL RESTRITO DO DESENVOLVEDOR
 // ----------------------------------------------------------------------------
 function TelaLogin() {
-  const { entrar, restaurarDadosDeFabrica, faltantesCozinha, faltantesInsumos, historicoReposicoes } = useSkina();
-  const [pin, setPin] = useState('');
+  const {
+    perfis,
+    entrar,
+    dispararToast,
+    restaurarDadosDeFabrica,
+    faltantesCozinha,
+    faltantesInsumos,
+    historicoReposicoes,
+  } = useSkina();
+
+  const [identificador, setIdentificador] = useState('');
+  const [modoAutenticacao, setModoAutenticacao] = useState<'celular' | 'senha'>('celular');
+  const [senhaDigitada, setSenhaDigitada] = useState('');
+  const [perfilCodigoEnviado, setPerfilCodigoEnviado] = useState<Perfil | null>(null);
+  const [codigoGerado, setCodigoGerado] = useState('');
+  const [codigoDigitado, setCodigoDigitado] = useState('');
   const [erroLogin, setErroLogin] = useState('');
+  const [painelDevAberto, setPainelDevAberto] = useState(false);
 
-  // Identifica perfil correspondente se o PIN bater com algum perfil
-  const perfilPeloPin = useMemo(() => PERFIS_RBAC.find((p) => p.pinPadrao === pin.trim()), [pin]);
+  /** Localiza um perfil pelo login (ex: "dona"), nome ou telefone digitado. */
+  function localizarPerfil(termoBruto: string): Perfil | undefined {
+    const termo = termoBruto.trim().toLowerCase();
+    if (!termo) return undefined;
+    const apenasDigitos = termo.replace(/\D/g, '');
 
-  function tentarLoginPorPin() {
-    setErroLogin('');
-    const limpo = pin.trim();
-    if (!limpo) {
-      setErroLogin('Digite um PIN para entrar.');
-      return;
-    }
-    const perfil = PERFIS_RBAC.find((p) => p.pinPadrao === limpo);
-    if (!perfil) {
-      setErroLogin('PIN incorreto. Use 1111 (Funcionária 1), 2222 (Estoque) ou 1234 (Dona).');
-      return;
-    }
-    entrar(perfil, limpo);
+    return perfis.find((p) => {
+      if (p.login.toLowerCase() === termo) return true;
+      if (p.nome.toLowerCase() === termo || p.nome.toLowerCase().includes(termo)) return true;
+      const telDigitos = p.telefone.replace(/\D/g, '');
+      if (apenasDigitos.length >= 4 && telDigitos.endsWith(apenasDigitos)) return true;
+      return false;
+    });
   }
 
-  function preencherPinEEntrar(perfil: Perfil) {
-    setPin(perfil.pinPadrao);
+  function solicitarCodigoCelular() {
     setErroLogin('');
-    entrar(perfil, perfil.pinPadrao);
+    const encontrado = localizarPerfil(identificador);
+    if (!encontrado) {
+      setErroLogin('Usuário ou celular não encontrado. Verifique os dados ou consulte o Painel do Desenvolvedor abaixo.');
+      return;
+    }
+    const codigo = String(Math.floor(1000 + Math.random() * 9000));
+    setPerfilCodigoEnviado(encontrado);
+    setCodigoGerado(codigo);
+    setCodigoDigitado('');
+    dispararToast(`📲 Código SMS ${codigo} enviado para ${encontrado.telefone} (${encontrado.nome})`);
+  }
+
+  function confirmarLoginPorCodigo() {
+    setErroLogin('');
+    if (!perfilCodigoEnviado) return;
+    if (codigoDigitado.trim() !== codigoGerado) {
+      setErroLogin('Código de confirmação incorreto. Verifique os 4 dígitos enviados para o celular.');
+      return;
+    }
+    entrar(perfilCodigoEnviado);
+  }
+
+  function confirmarLoginPorSenha() {
+    setErroLogin('');
+    const encontrado = localizarPerfil(identificador);
+    if (!encontrado) {
+      setErroLogin('Informe um usuário ou celular cadastrado válido.');
+      return;
+    }
+    if (senhaDigitada.trim() !== encontrado.pinPadrao) {
+      setErroLogin(`Senha incorreta para ${encontrado.nome}.`);
+      return;
+    }
+    entrar(encontrado, senhaDigitada.trim());
+  }
+
+  function preencherPeloDev(perfil: Perfil) {
+    setIdentificador(perfil.login);
+    setSenhaDigitada(perfil.pinPadrao);
+    setPerfilCodigoEnviado(null);
+    setErroLogin('');
+    dispararToast(`🛠️ Dados de "${perfil.nome}" preenchidos no formulário de login.`);
   }
 
   return (
     <div className="min-h-screen bg-[#F5EFEA] text-[#2C1E18] font-sans antialiased flex flex-col justify-between p-4 sm:p-6">
-      <div className="max-w-md w-full mx-auto pt-2 pb-8 space-y-4">
+      <div className="max-w-md w-full mx-auto pt-2 pb-10 space-y-4">
         {/* Cabeçalho */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <div className="inline-flex items-center gap-2.5 bg-[#FFFDFB] px-3.5 py-2 rounded-2xl border border-[#EBE0D6] shadow-2xs">
-            <div className="w-9 h-9 rounded-xl bg-[#F3EAE0] text-[#4A3228] flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-[#F3EAE0] text-[#4A3228] flex items-center justify-center shrink-0">
               <IconLogoSkina className="w-6 h-6" />
             </div>
             <div>
               <span className="block font-serif-display font-bold text-base text-[#3B2316] leading-none">
                 Skina do Pão
               </span>
-              <span className="text-[11px] text-[#7A685F] font-medium">Controle de Acesso & RBAC Auditado</span>
+              <span className="text-[11px] text-[#7A685F] font-medium">Vitrine, Forno & Depósito</span>
             </div>
           </div>
 
@@ -2523,219 +2783,287 @@ function TelaLogin() {
           </Botao>
         </div>
 
-        {/* Banner de Senhas Padrões Sugeridas */}
-        <section className="bg-[#362218] text-[#FFFDFB] rounded-[24px] p-4.5 space-y-3 shadow-lg border border-[#4A3228]">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <KeyRound className="w-4 h-4 text-[#F5D6B8]" />
-              <span className="font-bold text-xs uppercase tracking-wider text-[#F5D6B8]">
-                Senhas Padrões Sugeridas
-              </span>
+        {/* Card Principal de Login (Sem login direto exposto) */}
+        <div className="bg-[#FFFDFB] rounded-[28px] p-5 border border-[#EBE0D6] shadow-[0_8px_24px_rgba(44,30,24,0.06)] space-y-4">
+          <div className="space-y-1">
+            <span className="text-[10.5px] font-bold uppercase tracking-wider text-[#C86D51] block">
+              Acesso Seguro ao Sistema
+            </span>
+            <h1 className="font-serif-display text-2xl font-bold text-[#2C1E18] leading-tight">
+              Bom trabalho começa por aqui.
+            </h1>
+            <p className="text-xs text-[#6E5A4F] leading-relaxed">
+              Identifique-se com seu <strong>usuário</strong> ou <strong>celular cadastrado</strong> para receber o
+              código de acesso no celular ou entrar com sua senha.
+            </p>
+          </div>
+
+          {/* Resumo Operacional Rápido */}
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-[#FDF3EB] p-2.5 rounded-xl border border-[#EED0AE]">
+              <span className="text-[10px] font-bold uppercase text-[#9C441B] block">Vitrine Abaixo Mín.</span>
+              <strong className="text-[#3B2316]">
+                {faltantesCozinha.length} forno · {faltantesInsumos.length} frios
+              </strong>
             </div>
-            <Chip tom="laranja" icone={ShieldCheck}>
-              RBAC Ativo
-            </Chip>
+            <div className="bg-[#E6EEF2] p-2.5 rounded-xl border border-[#C2D7E2]">
+              <span className="text-[10px] font-bold uppercase text-[#264E63] block">Ledger de Auditoria</span>
+              <strong className="text-[#1D3B4B]">{historicoReposicoes.length} movimentações</strong>
+            </div>
           </div>
 
-          <p className="text-xs text-[#E8DCD2] leading-relaxed">
-            Utilize os PINs padrão sugeridos para testar o nível de acesso e as restrições de cada colaborador:
-          </p>
-
-          <div className="grid grid-cols-3 gap-2 text-center">
+          {/* Seletor de Método: Código no Celular vs Senha */}
+          <div className="grid grid-cols-2 gap-1.5 bg-[#F3EAE0] p-1 rounded-xl border border-[#E2D5C8]">
             <button
               type="button"
               onClick={() => {
-                setPin('1111');
+                setModoAutenticacao('celular');
                 setErroLogin('');
               }}
-              className="bg-[#4A3228] hover:bg-[#5E3F32] transition-colors p-2 rounded-xl border border-[#644638] text-left active:scale-95"
+              className={cx(
+                'py-2 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all',
+                modoAutenticacao === 'celular'
+                  ? 'bg-[#FFFDFB] text-[#2C1E18] shadow-2xs'
+                  : 'text-[#6E5A4F] hover:text-[#2C1E18]'
+              )}
             >
-              <span className="text-[10px] text-[#D8C5B8] block truncate">Funcionária 1</span>
-              <strong className="text-base font-mono font-bold text-[#F5D6B8] block">1111</strong>
-              <span className="text-[9px] text-[#B8A395] block mt-0.5">3 Abas · Balcão</span>
+              <Smartphone className="w-3.5 h-3.5 text-[#C86D51]" />
+              <span>Código no Celular</span>
             </button>
-
             <button
               type="button"
               onClick={() => {
-                setPin('2222');
+                setModoAutenticacao('senha');
+                setPerfilCodigoEnviado(null);
                 setErroLogin('');
               }}
-              className="bg-[#4A3228] hover:bg-[#5E3F32] transition-colors p-2 rounded-xl border border-[#644638] text-left active:scale-95"
+              className={cx(
+                'py-2 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all',
+                modoAutenticacao === 'senha'
+                  ? 'bg-[#FFFDFB] text-[#2C1E18] shadow-2xs'
+                  : 'text-[#6E5A4F] hover:text-[#2C1E18]'
+              )}
             >
-              <span className="text-[10px] text-[#D8C5B8] block truncate">Estoque / Dep.</span>
-              <strong className="text-base font-mono font-bold text-[#C2D7E2] block">2222</strong>
-              <span className="text-[9px] text-[#B8A395] block mt-0.5">4 Abas · Notas</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setPin('1234');
-                setErroLogin('');
-              }}
-              className="bg-[#4A3228] hover:bg-[#5E3F32] transition-colors p-2 rounded-xl border border-[#644638] text-left active:scale-95"
-            >
-              <span className="text-[10px] text-[#D8C5B8] block truncate">Dona / Admin</span>
-              <strong className="text-base font-mono font-bold text-[#FAD490] block">1234</strong>
-              <span className="text-[9px] text-[#B8A395] block mt-0.5">6 Abas · Total</span>
+              <KeyRound className="w-3.5 h-3.5 text-[#C86D51]" />
+              <span>Senha / PIN</span>
             </button>
           </div>
 
-          {/* Campo para Digitar PIN */}
-          <div className="pt-2 border-t border-[#4A3228] flex items-center gap-2">
-            <div className="relative flex-1">
+          {/* Campos de Identificação */}
+          <div className="space-y-3">
+            <Campo rotulo="Usuário / Login ou Celular Cadastrado">
               <input
-                type="password"
-                maxLength={6}
-                placeholder="Digite o PIN (1111, 2222 ou 1234)"
-                value={pin}
+                type="text"
+                placeholder="Ex: clara, mateus, dona ou (68) 99912-3401"
+                value={identificador}
                 onChange={(e) => {
-                  setPin(e.target.value);
+                  setIdentificador(e.target.value);
+                  setPerfilCodigoEnviado(null);
                   setErroLogin('');
                 }}
-                onKeyDown={(e) => e.key === 'Enter' && tentarLoginPorPin()}
-                className="w-full bg-[#241710] border border-[#5A3F31] rounded-xl px-3 py-2 text-xs font-mono font-bold text-white placeholder:text-[#8C7A70] focus:outline-none focus:border-[#F5D6B8]"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (modoAutenticacao === 'celular') solicitarCodigoCelular();
+                    else confirmarLoginPorSenha();
+                  }
+                }}
+                className={ui.input}
               />
-              {perfilPeloPin && (
-                <span className="absolute right-2.5 top-2 text-[10px] font-bold text-[#86EFAC]">
-                  ✓ {perfilPeloPin.nome.split(' ')[0]}
-                </span>
-              )}
-            </div>
-            <Botao
-              variante="primario"
-              tamanho="sm"
-              icone={ArrowRight}
-              onClick={tentarLoginPorPin}
-              className="shrink-0 text-[#F5D6B8]"
-            >
-              Entrar
-            </Botao>
-          </div>
+            </Campo>
 
-          {erroLogin && (
-            <p className="text-[11px] font-semibold text-[#FCA5A5] bg-[#7F1D1D]/50 px-2.5 py-1 rounded-lg">
-              {erroLogin}
-            </p>
-          )}
-        </section>
+            {modoAutenticacao === 'celular' ? (
+              <div className="space-y-3">
+                {!perfilCodigoEnviado ? (
+                  <Botao
+                    variante="primario"
+                    tamanho="lg"
+                    icone={Smartphone}
+                    onClick={solicitarCodigoCelular}
+                  >
+                    Enviar Código para o Celular
+                  </Botao>
+                ) : (
+                  <div className="space-y-3 pt-1 border-t border-[#EFE6DD]">
+                    {/* Banner simulando o SMS que chegou no celular da pessoa */}
+                    <div className="bg-[#E6F0E8] border border-[#C5DEC9] rounded-xl p-3 text-xs text-[#2F5938] space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-bold uppercase text-[#23452B]">
+                          📲 SMS enviado para {perfilCodigoEnviado.telefone}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCodigoDigitado(codigoGerado);
+                            setErroLogin('');
+                          }}
+                          className="bg-[#2F5938] text-white text-[10.5px] font-bold px-2.5 py-1 rounded-lg hover:bg-[#23452B] transition-colors shrink-0"
+                        >
+                          Preencher Código
+                        </button>
+                      </div>
+                      <p className="text-xs leading-snug">
+                        Olá, <strong>{perfilCodigoEnviado.nome}</strong>! Seu código de acesso Skina do Pão é:{' '}
+                        <strong className="font-mono text-sm underline">{codigoGerado}</strong>
+                      </p>
+                    </div>
 
-        {/* Resumo Operacional */}
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="bg-[#FDF3EB] px-3.5 py-2 rounded-2xl border border-[#EED0AE] shadow-2xs">
-            <span className="text-[10px] font-bold uppercase text-[#9C441B] block">Vitrine Abaixo Mín.</span>
-            <strong className="text-[#3B2316] text-xs">
-              {faltantesCozinha.length} forno · {faltantesInsumos.length} frios
-            </strong>
-          </div>
-          <div className="bg-[#E6EEF2] px-3.5 py-2 rounded-2xl border border-[#C2D7E2] shadow-2xs">
-            <span className="text-[10px] font-bold uppercase text-[#264E63] block">Ledger de Auditoria</span>
-            <strong className="text-[#1D3B4B] text-xs">{historicoReposicoes.length} movimentações</strong>
+                    <Campo rotulo="Digite o código de 4 dígitos enviado ao celular">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={4}
+                          placeholder="0000"
+                          value={codigoDigitado}
+                          onChange={(e) => {
+                            setCodigoDigitado(e.target.value);
+                            setErroLogin('');
+                          }}
+                          onKeyDown={(e) => e.key === 'Enter' && confirmarLoginPorCodigo()}
+                          className="flex-1 bg-[#FAF6F2] border border-[#D8C8B8] rounded-xl px-3 py-2.5 text-sm font-mono font-bold text-center tracking-widest text-[#2C1E18] focus:outline-none focus:border-[#362218]"
+                        />
+                        <Botao
+                          variante="sucesso"
+                          tamanho="md"
+                          icone={Check}
+                          onClick={confirmarLoginPorCodigo}
+                          className="py-2.5 px-4 shrink-0"
+                        >
+                          Confirmar Acesso
+                        </Botao>
+                      </div>
+                    </Campo>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <Campo rotulo="Senha / PIN de Acesso">
+                  <input
+                    type="password"
+                    maxLength={8}
+                    placeholder="Digite sua senha cadastrada"
+                    value={senhaDigitada}
+                    onChange={(e) => {
+                      setSenhaDigitada(e.target.value);
+                      setErroLogin('');
+                    }}
+                    onKeyDown={(e) => e.key === 'Enter' && confirmarLoginPorSenha()}
+                    className={ui.input}
+                  />
+                </Campo>
+
+                <Botao
+                  variante="primario"
+                  tamanho="lg"
+                  icone={ArrowRight}
+                  onClick={confirmarLoginPorSenha}
+                >
+                  Entrar no Sistema
+                </Botao>
+              </div>
+            )}
+
+            {erroLogin && (
+              <div className="bg-[#F5E1DA] border border-[#E2B8AA] text-[#8C2D19] px-3 py-2 rounded-xl text-xs font-semibold leading-snug">
+                ⚠️ {erroLogin}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Cards dos Perfis */}
-        <div className="space-y-2.5">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-[#6E5A4F] px-1 flex items-center justify-between">
-            <span>Perfis de Acesso Cadastrados:</span>
-            <span className="text-[11px] font-normal lowercase">toque para login direto</span>
-          </h2>
+        {/* ====================================================================
+            ÁREA RESTRITA DO DESENVOLVEDOR (Ver Dados de Cadastro e Acessar Perfis)
+           ==================================================================== */}
+        <div className="pt-2">
+          <button
+            type="button"
+            onClick={() => setPainelDevAberto(!painelDevAberto)}
+            className="w-full py-2.5 px-4 rounded-2xl bg-[#EAE0D5] hover:bg-[#DFD2C4] text-[#4A3228] border border-[#D5C5B5] text-xs font-bold flex items-center justify-between transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <Database className="w-4 h-4 text-[#9C441B]" />
+              <span>🛠️ Área do Desenvolvedor (Dados de Cadastro & Perfis)</span>
+            </span>
+            <span className="text-[11px] underline">
+              {painelDevAberto ? 'Ocultar' : 'Abrir Painel Dev'}
+            </span>
+          </button>
 
-          {PERFIS_RBAC.map((perfil) => {
-            const ehFuncionaria1 = perfil.id === 'vitrine';
-            const ehEstoque = perfil.id === 'estoque';
-            const ehDona = perfil.id === 'proprietario';
-
-            return (
-              <div
-                key={perfil.id}
-                className={cx(
-                  'bg-[#FFFDFB] hover:bg-[#FAF6F2] transition-all rounded-[24px] p-4 border shadow-2xs space-y-2.5',
-                  ehDona
-                    ? 'border-[#C29367] ring-1 ring-[#C29367]/40'
-                    : ehFuncionaria1
-                    ? 'border-[#B2D8BB]'
-                    : 'border-[#CBDCE6]'
-                )}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3 min-w-0">
-                    <div
-                      className={cx(
-                        'w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 font-serif-display font-bold text-base border',
-                        ehDona
-                          ? 'bg-[#362218] text-[#FAD490] border-[#362218]'
-                          : ehFuncionaria1
-                          ? 'bg-[#EAF5EC] text-[#2F5938] border-[#C5DEC9]'
-                          : 'bg-[#EBF2F7] text-[#264E63] border-[#C2D7E2]'
-                      )}
-                    >
-                      {ehDona ? <Crown className="w-5 h-5" /> : perfil.nome.charAt(0)}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-serif-display font-bold text-base text-[#2C1E18]">{perfil.nome}</h3>
-                        <span className={cx('text-[10px] font-semibold px-2 py-0.5 rounded-full border', perfil.corBadge)}>
-                          {perfil.cargo}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-[11px] text-[#6E5A4F] font-mono bg-[#F4EDE5] px-2 py-0.5 rounded-md font-semibold">
-                          PIN Padrão: <strong>{perfil.pinPadrao}</strong>
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <Botao
-                    variante={ehDona ? 'primario' : 'contorno'}
-                    tamanho="sm"
-                    icone={ArrowRight}
-                    onClick={() => preencherPinEEntrar(perfil)}
-                    className={ehDona ? 'text-[#F5D6B8] shrink-0' : 'shrink-0'}
-                  >
-                    Entrar
-                  </Botao>
-                </div>
-
-                <p className="text-[11.5px] text-[#6E5A4F] leading-snug">{perfil.foco}</p>
-
-                {/* Tags explícitas de visibilidade de telas */}
-                <div className="pt-2 border-t border-[#EFE6DD] flex items-center justify-between text-[10.5px]">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {ehFuncionaria1 && (
-                      <>
-                        <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md font-semibold border border-emerald-200">
-                          ✓ 3 Telas: Vitrine · Cozinha 80mm · Reposição
-                        </span>
-                        <span className="text-stone-500 bg-stone-100 px-2 py-0.5 rounded-md font-semibold">
-                          🔒 Sem Notas Fiscais ou Custos
-                        </span>
-                      </>
-                    )}
-                    {ehEstoque && (
-                      <>
-                        <span className="text-sky-800 bg-sky-50 px-2 py-0.5 rounded-md font-semibold border border-sky-200">
-                          ✓ 4 Telas: Vitrine · Cozinha · Reposição · Nota Depósito
-                        </span>
-                        <span className="text-stone-500 bg-stone-100 px-2 py-0.5 rounded-md font-semibold">
-                          🔒 Sem Relatórios Executivos
-                        </span>
-                      </>
-                    )}
-                    {ehDona && (
-                      <>
-                        <span className="text-amber-900 bg-amber-50 px-2 py-0.5 rounded-md font-semibold border border-amber-200">
-                          👑 Visão Completa (6 Telas) · DRE · Margens · PDF A4
-                        </span>
-                      </>
-                    )}
-                  </div>
+          {painelDevAberto && (
+            <div className="mt-2.5 bg-[#2C1E18] text-[#FFFDFB] rounded-[24px] p-4 border border-[#4A3228] shadow-xl space-y-3">
+              <div className="flex items-center justify-between gap-2 border-b border-[#4A3228] pb-2.5">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#F5D6B8] block">
+                    Ambiente de Inspeção & Testes (Somente Desenvolvedor)
+                  </span>
+                  <p className="text-[11px] text-[#D9C8BC] leading-snug mt-0.5">
+                    Consulte abaixo todos os dados cadastrados ou acesse individualmente cada perfil para inspecionar as permissões:
+                  </p>
                 </div>
               </div>
-            );
-          })}
+
+              <div className="space-y-2.5">
+                {perfis.map((p) => {
+                  const ehDono = p.papel === 'proprietario';
+                  return (
+                    <div
+                      key={p.id}
+                      className="bg-[#3B2820] rounded-2xl p-3.5 border border-[#543B30] space-y-2 text-xs"
+                    >
+                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                        <div className="min-w-0 flex-1">
+                          <span className="font-serif-display font-bold text-sm text-[#FFFDFB] block leading-snug">
+                            {p.nome}
+                          </span>
+                          <span className="text-[11px] text-[#F5D6B8] font-medium block">
+                            {p.cargo}
+                          </span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#241710] text-[#F5D6B8] border border-[#543B30]">
+                          Tela Inicial: {ehDono ? 'Visão Geral' : 'Conferência'}
+                        </span>
+                      </div>
+
+                      {/* Grade com todos os Dados de Cadastro do Perfil */}
+                      <div className="grid grid-cols-3 gap-1.5 bg-[#241710] p-2.5 rounded-xl border border-[#4A3228] text-[11px]">
+                        <div>
+                          <span className="text-[9.5px] uppercase text-[#A89488] block">Login / Usuário</span>
+                          <strong className="font-mono text-[#F5D6B8]">{p.login}</strong>
+                        </div>
+                        <div>
+                          <span className="text-[9.5px] uppercase text-[#A89488] block">Celular (SMS)</span>
+                          <strong className="font-mono text-white">{p.telefone}</strong>
+                        </div>
+                        <div>
+                          <span className="text-[9.5px] uppercase text-[#A89488] block">Senha / PIN</span>
+                          <strong className="font-mono text-[#86EFAC]">{p.pinPadrao}</strong>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => preencherPeloDev(p)}
+                          className="flex-1 py-1.5 px-2.5 rounded-xl bg-[#4A3228] hover:bg-[#5C3F33] text-[#F5D6B8] font-bold text-[11px] transition-colors"
+                        >
+                          Preencher no Login
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => entrar(p)}
+                          className="flex-1 py-1.5 px-2.5 rounded-xl bg-[#C86D51] hover:bg-[#B55B3F] text-white font-bold text-[11px] flex items-center justify-center gap-1 transition-colors"
+                        >
+                          <span>Acessar Perfil (Dev)</span>
+                          <ArrowRight className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -2743,60 +3071,128 @@ function TelaLogin() {
 }
 
 // ----------------------------------------------------------------------------
-// 8.1 CABEÇALHO SUPERIOR E BARRA INFERIOR
+// 8.1 CABEÇALHO SUPERIOR E BARRA INFERIOR (100% Responsivos e Sem Sobreposição)
 // ----------------------------------------------------------------------------
 function BarraSuperior() {
-  const { perfilAtivo, trocarPerfil, turnoAtual, ehProprietario, telaAtual, navegar, sair, abrirPdf } = useSkina();
+  const { perfilAtivo, perfis, trocarPerfil, turnoAtual, ehProprietario, telaAtual, navegar, sair, abrirPdf } =
+    useSkina();
+  const [gavetaDevAberta, setGavetaDevAberta] = useState(false);
+
   if (!perfilAtivo) return null;
 
-  return (
-    <header className="bg-[#EFE6DD] border-b border-[#E2D5C8] px-4 py-2 sticky top-0 z-30">
-      <div className="max-w-md mx-auto flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <button
-            type="button"
-            onClick={() => navegar('conferencia')}
-            className="w-7 h-7 rounded-lg bg-[#362218] text-[#FFFDFB] flex items-center justify-center shrink-0"
-            title="Ir para Conferência"
-          >
-            <IconLogoSkina className="w-4 h-4" />
-          </button>
+  const podeMexerCatalogo = perfilAtivo.permissoes.gerirCatalogoCustos;
 
-          <div className="min-w-0">
-            <select
-              value={perfilAtivo.id}
-              onChange={(e) => trocarPerfil(e.target.value)}
-              className="bg-transparent font-serif-display font-bold text-xs text-[#2C1E18] focus:outline-none cursor-pointer truncate max-w-[200px]"
-              title="Alternar Perfil para testar visibilidade estrita RBAC"
+  return (
+    <header
+      style={{ zIndex: 40 }}
+      className="bg-[#EFE6DD]/95 backdrop-blur-md border-b border-[#E2D5C8] px-3 sm:px-4 py-2.5 sticky top-0 z-40"
+    >
+      <div className="max-w-md mx-auto space-y-2">
+        {/* Linha 1: Identidade do Usuário Logado + Botão Dev e Sair (Nunca corta nem sobrepõe) */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={() => navegar(ehProprietario ? 'painel-dono' : 'conferencia')}
+              className="w-8 h-8 rounded-xl bg-[#362218] text-[#FFFDFB] flex items-center justify-center shrink-0 shadow-2xs"
+              title={ehProprietario ? 'Ir para Visão Geral' : 'Ir para Conferência'}
             >
-              {PERFIS_RBAC.map((p) => (
-                <option key={p.id} value={p.id}>
-                  👤 {p.nome} ({p.cargo.split(' · ')[0]})
-                </option>
-              ))}
-            </select>
-            <span className="text-[10px] text-[#6E5A4F] block truncate">
-              Turno: {turnoAtual} ·{' '}
-              {ehProprietario
-                ? 'Diretoria Total (6 abas)'
-                : perfilAtivo.permissoes.lancarNotaFiscal
-                ? 'Estoque & Compras (4 abas)'
-                : 'Balcão Restrito (3 abas)'}
-            </span>
+              <IconLogoSkina className="w-4 h-4" />
+            </button>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-serif-display font-bold text-xs sm:text-sm text-[#2C1E18] leading-tight break-words">
+                  {perfilAtivo.nome}
+                </span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#E4D7C9] text-[#4A3228]">
+                  {perfilAtivo.cargo.split(' · ')[0]}
+                </span>
+              </div>
+              <span className="text-[10px] text-[#6E5A4F] block leading-tight mt-0.5">
+                Turno: {turnoAtual}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setGavetaDevAberta(!gavetaDevAberta)}
+              className={cx(
+                'px-2 py-1.5 rounded-xl text-[10.5px] font-bold border transition-colors flex items-center gap-1',
+                gavetaDevAberta
+                  ? 'bg-[#2C1E18] text-[#F5D6B8] border-[#2C1E18]'
+                  : 'bg-[#FAF6F2] text-[#5A4940] border-[#D8C8B8] hover:bg-[#F3EAE0]'
+              )}
+              title="Área do Desenvolvedor: Alternar perfil individualmente"
+            >
+              <Database className="w-3 h-3 text-[#C86D51]" />
+              <span>Dev</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={sair}
+              className="px-2.5 py-1.5 rounded-xl bg-[#E4D7C9] hover:bg-[#D8C7B6] text-[#3B2316] text-[10.5px] font-bold flex items-center gap-1 transition-colors"
+              title="Encerrar sessão e voltar para a Tela de Login"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Sair</span>
+            </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
+        {/* Linha 2: Barra de Ações Rápidas (Separada em linha própria para nunca cortar) */}
+        <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-[#E2D5C8]/80">
           {ehProprietario && (
             <Botao
-              variante="primario"
+              variante={telaAtual === 'painel-dono' ? 'primario' : 'contorno'}
+              tamanho="sm"
+              icone={Crown}
+              onClick={() => navegar('painel-dono')}
+              className="px-2.5 py-1"
+            >
+              Visão Geral
+            </Botao>
+          )}
+
+          {ehProprietario && (
+            <Botao
+              variante="acento"
               tamanho="sm"
               icone={FileText}
               onClick={() => abrirPdf('executivo')}
-              className="text-[#F5D6B8]"
-              title="Gerar Relatório Oficial em PDF (A4) - Exclusivo Proprietária"
+              className="px-2.5 py-1"
+              title="Gerar Relatório Oficial em PDF (A4)"
             >
               PDF A4
+            </Botao>
+          )}
+
+          {ehProprietario && (
+            <Botao
+              variante={telaAtual === 'usuarios' ? 'primario' : 'contorno'}
+              tamanho="sm"
+              icone={Users}
+              onClick={() => navegar('usuarios')}
+              className="px-2.5 py-1"
+              title="Criar ou gerenciar acessos de usuários (Exclusivo Dona)"
+            >
+              Acessos
+            </Botao>
+          )}
+
+          {podeMexerCatalogo && (
+            <Botao
+              variante={telaAtual === 'catalogo' ? 'primario' : 'contorno'}
+              tamanho="sm"
+              icone={Store}
+              onClick={() => navegar('catalogo')}
+              className="px-2.5 py-1"
+              title="Catálogo de Produtos (Disponível apenas para quem tem permissão)"
+            >
+              Catálogo
             </Botao>
           )}
 
@@ -2805,28 +3201,49 @@ function BarraSuperior() {
             tamanho="sm"
             icone={ArrowRightLeft}
             onClick={() => navegar('passagem-turno')}
+            className="px-2.5 py-1 ml-auto"
           >
-            Turno
+            Passagem de Turno
           </Botao>
-
-          <Botao
-            variante={telaAtual === 'catalogo' ? 'primario' : 'contorno'}
-            tamanho="sm"
-            icone={Store}
-            onClick={() => navegar('catalogo')}
-          >
-            Catálogo
-          </Botao>
-
-          <button
-            type="button"
-            onClick={sair}
-            className="p-1.5 rounded-lg bg-[#E4D7C9] hover:bg-[#D8C7B6] text-[#3B2316]"
-            title="Sair / Tela de Login"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-          </button>
         </div>
+
+        {/* Gaveta Exclusiva do Desenvolvedor para trocar de perfil em 1 clique durante testes */}
+        {gavetaDevAberta && (
+          <div className="bg-[#2C1E18] text-[#FFFDFB] rounded-2xl p-2.5 border border-[#4A3228] space-y-1.5 text-xs">
+            <div className="flex items-center justify-between text-[10px] text-[#F5D6B8] font-bold uppercase px-1">
+              <span>🛠️ Modo Desenvolvedor · Alternar Perfil</span>
+              <button type="button" onClick={() => setGavetaDevAberta(false)} className="underline">
+                Fechar
+              </button>
+            </div>
+            <div className="grid grid-cols-1 gap-1">
+              {perfis.map((p) => {
+                const ativo = p.id === perfilAtivo.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => {
+                      trocarPerfil(p.id);
+                      setGavetaDevAberta(false);
+                    }}
+                    className={cx(
+                      'w-full text-left px-2.5 py-1.5 rounded-xl flex items-center justify-between gap-2 transition-colors',
+                      ativo ? 'bg-[#C86D51] text-white font-bold' : 'bg-[#3B2820] text-[#E8DCD2] hover:bg-[#4A3228]'
+                    )}
+                  >
+                    <span className="leading-snug break-words">
+                      {p.nome} <span className="opacity-80">({p.cargo.split(' · ')[0]})</span>
+                    </span>
+                    <span className="font-mono text-[10px] shrink-0 bg-black/25 px-1.5 py-0.5 rounded">
+                      Login: {p.login} · PIN: {p.pinPadrao}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </header>
   );
@@ -2846,14 +3263,23 @@ function BarraNavegacao() {
   const abas: Array<{
     id: IdTela;
     label: string;
+    labelCurto: string;
     icone: ComponenteIcone;
     badge?: number;
     corBadge?: string;
     requerPermissao?: 'lancarNotaFiscal' | 'verFinanceiroCompleto';
   }> = [
     {
+      id: 'painel-dono',
+      label: 'Visão Geral',
+      labelCurto: 'Visão Geral',
+      icone: Crown,
+      requerPermissao: 'verFinanceiroCompleto',
+    },
+    {
       id: 'conferencia',
       label: 'Conferência',
+      labelCurto: 'Conferência',
       icone: ClipboardCheck,
       badge: todosAbaixoMinimo.length,
       corBadge: 'bg-[#C86D51]',
@@ -2861,13 +3287,15 @@ function BarraNavegacao() {
     {
       id: 'cozinha',
       label: 'Cozinha 80mm',
+      labelCurto: 'Cozinha',
       icone: Flame,
       badge: comandasCozinha.length,
       corBadge: temComandaUrgente ? 'bg-[#DC2626]' : 'bg-[#B84A27]',
     },
     {
       id: 'abastecimento-insumos',
-      label: 'Depósito➔Vitrine',
+      label: 'Vitrine',
+      labelCurto: 'Vitrine',
       icone: Snowflake,
       badge: tarefasInsumos.length,
       corBadge: 'bg-[#264E63]',
@@ -2875,19 +3303,15 @@ function BarraNavegacao() {
     {
       id: 'nota-fiscal',
       label: 'Nota Depósito',
+      labelCurto: 'Notas',
       icone: Receipt,
       requerPermissao: 'lancarNotaFiscal',
     },
     {
       id: 'relatorios',
       label: 'Relatórios',
+      labelCurto: 'Relatórios',
       icone: PieChart,
-      requerPermissao: 'verFinanceiroCompleto',
-    },
-    {
-      id: 'painel-dono',
-      label: 'Dono/PDF',
-      icone: Crown,
       requerPermissao: 'verFinanceiroCompleto',
     },
   ];
@@ -2898,10 +3322,15 @@ function BarraNavegacao() {
     return Boolean(perfilAtivo?.permissoes[aba.requerPermissao]);
   });
 
+  const usarLabelCurtoNoMobile = abasVisiveis.length >= 5;
+
   return (
-    <nav className="fixed bottom-0 inset-x-0 bg-[#FFFDFB]/95 backdrop-blur-md border-t border-[#E6D9CE] px-1.5 py-1.5 z-30 shadow-[0_-4px_20px_rgba(44,30,24,0.06)]">
+    <nav
+      style={{ zIndex: 50 }}
+      className="fixed bottom-0 inset-x-0 bg-[#FFFDFB]/95 backdrop-blur-md border-t border-[#E6D9CE] px-1 sm:px-1.5 pt-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] z-50 shadow-[0_-4px_20px_rgba(44,30,24,0.08)]"
+    >
       <div
-        className="max-w-md mx-auto grid gap-1"
+        className="max-w-md mx-auto grid gap-0.5 sm:gap-1"
         style={{ gridTemplateColumns: `repeat(${abasVisiveis.length}, minmax(0, 1fr))` }}
       >
         {abasVisiveis.map((aba) => {
@@ -2915,7 +3344,7 @@ function BarraNavegacao() {
               type="button"
               onClick={() => navegar(aba.id)}
               className={cx(
-                'flex flex-col items-center justify-center py-1.5 rounded-2xl relative transition-all duration-200',
+                'flex flex-col items-center justify-center py-1.5 px-0.5 rounded-2xl relative transition-all duration-200 min-w-0',
                 ativo
                   ? 'text-[#362218] font-bold bg-[#F3EAE0]'
                   : ehCozinhaUrgente
@@ -2923,40 +3352,44 @@ function BarraNavegacao() {
                   : 'text-[#8C7A70] font-medium hover:bg-[#F9F5F0]'
               )}
             >
-              <div className="relative">
+              <div className="relative inline-flex items-center justify-center">
                 <Icone
                   className={cx(
                     'w-5 h-5 stroke-[2] transition-transform',
                     ehCozinhaUrgente && 'text-[#DC2626] scale-110'
                   )}
                 />
-                {ehCozinhaUrgente && (
-                  <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-80" />
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-600" />
+                {aba.badge !== undefined && aba.badge > 0 && (
+                  <span className="absolute -top-1.5 -right-2.5 flex items-center justify-center">
+                    {ehCozinhaUrgente && (
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+                    )}
+                    <span
+                      className={cx(
+                        'relative px-1 min-w-[16px] h-4 rounded-full text-white text-[9px] font-bold flex items-center justify-center shadow-xs',
+                        ehCozinhaUrgente ? 'bg-[#DC2626] ring-1 ring-white' : aba.corBadge ?? 'bg-[#C86D51]'
+                      )}
+                    >
+                      {aba.badge}
+                    </span>
                   </span>
                 )}
               </div>
               <span
                 className={cx(
-                  'text-[9.5px] mt-0.5 truncate max-w-full px-0.5',
+                  'text-[9.5px] sm:text-[10px] mt-0.5 max-w-full px-0.5 leading-tight text-center',
                   ehCozinhaUrgente && 'font-bold text-[#DC2626]'
                 )}
               >
-                {aba.label}
+                {usarLabelCurtoNoMobile ? (
+                  <>
+                    <span className="sm:hidden">{aba.labelCurto}</span>
+                    <span className="hidden sm:inline">{aba.label}</span>
+                  </>
+                ) : (
+                  aba.label
+                )}
               </span>
-              {aba.badge !== undefined && aba.badge > 0 && (
-                <span
-                  className={cx(
-                    'absolute top-1 right-1.5 px-1 min-w-[16px] h-4 rounded-full text-white text-[9px] font-bold flex items-center justify-center shadow-xs',
-                    ehCozinhaUrgente
-                      ? 'bg-[#DC2626] animate-pulse ring-2 ring-red-300'
-                      : aba.corBadge ?? 'bg-[#C86D51]'
-                  )}
-                >
-                  {aba.badge}
-                </span>
-              )}
             </button>
           );
         })}
@@ -2965,41 +3398,59 @@ function BarraNavegacao() {
   );
 }
 
-/** Alerta Flutuante piscando na tela quando há comandas urgentes aguardando produção no forno. */
+/** Alerta Flutuante piscando sempre na frente (zIndex 55) quando há comandas urgentes aguardando no forno. */
 function AlertaComandaUrgenteFlutuante() {
   const { temComandaUrgente, qtdComandasUrgentes, telaAtual, navegar } = useSkina();
+  const [minimizadoNaTela, setMinimizadoNaTela] = useState(false);
 
-  if (!temComandaUrgente || telaAtual === 'cozinha') return null;
+  useEffect(() => {
+    setMinimizadoNaTela(false);
+  }, [qtdComandasUrgentes, telaAtual]);
+
+  if (!temComandaUrgente || telaAtual === 'cozinha' || minimizadoNaTela) return null;
 
   return (
-    <div className="fixed bottom-20 inset-x-4 max-w-md mx-auto z-25 pointer-events-none">
-      <div className="pointer-events-auto bg-[#881337] text-white p-3 rounded-2xl shadow-[0_10px_30px_rgba(136,19,55,0.4)] border border-[#FDA4AF]/40 flex items-center justify-between gap-3 animate-pulse">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-9 h-9 rounded-xl bg-[#E11D48] text-white flex items-center justify-center shrink-0 shadow-sm relative">
-            <Flame className="w-5 h-5 animate-bounce" />
-            <span className="absolute -top-1 -right-1 flex h-3 w-3">
+    <div
+      style={{ zIndex: 55 }}
+      className="fixed bottom-[68px] sm:bottom-[74px] inset-x-2.5 sm:inset-x-4 max-w-md mx-auto z-50 pointer-events-none"
+    >
+      <div className="pointer-events-auto bg-[#881337] text-white p-2.5 sm:p-3 rounded-2xl shadow-[0_12px_32px_rgba(44,30,24,0.45)] border-2 border-[#FDA4AF]/80 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#E11D48] text-white flex items-center justify-center shrink-0 shadow-sm relative">
+            <Flame className="w-4 h-4 sm:w-5 sm:h-5 animate-bounce" />
+            <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5 sm:h-3 sm:w-3">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-80" />
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-white" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 sm:h-3 sm:w-3 bg-white" />
             </span>
           </div>
-          <div className="min-w-0">
-            <span className="block font-bold text-xs text-white uppercase tracking-wider">
+          <div className="min-w-0 flex-1">
+            <span className="block font-bold text-[11px] sm:text-xs text-white uppercase tracking-wider leading-tight">
               🔥 Fornada Crítica Aguardando!
             </span>
-            <span className="text-[11px] text-[#FECDD3] block truncate">
+            <span className="text-[10px] sm:text-[11px] text-[#FECDD3] block leading-tight">
               {qtdComandasUrgentes} pedido(s) urgente(s) na Cozinha (Vitrine zerada)
             </span>
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => navegar('cozinha')}
-          className="shrink-0 bg-white text-[#881337] hover:bg-[#FFF1F2] active:scale-95 transition-all text-xs font-bold px-3 py-1.5 rounded-xl shadow-xs flex items-center gap-1"
-        >
-          <span>Ver Cozinha</span>
-          <ArrowRight className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={() => navegar('cozinha')}
+            className="bg-white text-[#881337] hover:bg-[#FFF1F2] active:scale-95 transition-all text-[11px] sm:text-xs font-bold px-2.5 sm:px-3 py-1.5 rounded-xl shadow-sm flex items-center gap-1"
+          >
+            <span>Ver Cozinha</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setMinimizadoNaTela(true)}
+            className="p-1.5 rounded-xl bg-[#9F1239] hover:bg-[#BE123C] text-[#FECDD3] transition-colors"
+            title="Ocultar aviso nesta tela (o alerta continua piscando na aba Cozinha)"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -3014,7 +3465,10 @@ function ModalImpressaoTermica() {
   const ehUrgente = comanda.prioridade === 'urgente';
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#2C1E18]/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+    <div
+      style={{ zIndex: 80 }}
+      className="fixed inset-0 z-50 bg-[#2C1E18]/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+    >
       <div className="max-w-sm w-full my-auto space-y-3">
         {/* Carcaça simulada da impressora térmica 80mm */}
         <div className="bg-[#241A15] rounded-t-2xl p-3 border-b-4 border-[#120D0A] shadow-xl text-white">
@@ -3155,37 +3609,49 @@ function ModalImpressaoTermica() {
 }
 
 // ----------------------------------------------------------------------------
-// 8.2 PAINEL DO DONO (exclusivo do proprietário)
+// 8.2 VISÃO GERAL (Tela Inicial exclusiva da Proprietária / Dona)
 // ----------------------------------------------------------------------------
 function TelaPainelDono() {
-  const { kpis, abrirPdf, atualizarPrecoOuCusto, caixaDia, atualizarCaixa, registrarSangria } = useSkina();
+  const { kpis, abrirPdf, navegar, perfis, atualizarPrecoOuCusto, caixaDia, atualizarCaixa, registrarSangria } =
+    useSkina();
   const [sangriaValor, setSangriaValor] = useState('');
   const [sangriaDesc, setSangriaDesc] = useState('');
 
   return (
     <div className="space-y-4">
-      {/* Banner executivo */}
-      <section className="bg-gradient-to-br from-[#362218] via-[#2C1E18] to-[#4A3228] text-[#FFFDFB] rounded-[26px] p-5 shadow-lg space-y-4">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest bg-[#5A3E2E] text-[#F5D6B8] px-2.5 py-0.5 rounded-full">
-              <Crown className="w-3 h-3" />
-              Visão Geral Executiva · Seu Antônio
-            </span>
-            <h1 className="font-serif-display text-[26px] font-bold leading-tight mt-1.5">
-              Sua padaria, sob seu olhar.
-            </h1>
-            <p className="text-xs text-[#D9C8BC]">Indicadores patrimoniais, Curva ABC, caixa e emissão de PDF Oficial A4.</p>
-          </div>
+      {/* Banner executivo com largura 100% para não espremer o título */}
+      <section className="bg-gradient-to-br from-[#362218] via-[#2C1E18] to-[#4A3228] text-[#FFFDFB] rounded-[26px] p-5 shadow-lg space-y-3.5">
+        <div className="space-y-1.5">
+          <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider bg-[#5A3E2E] text-[#F5D6B8] px-3 py-1 rounded-full">
+            <Crown className="w-3.5 h-3.5 shrink-0" />
+            <span>Visão Geral · Dona Maria / Seu Antônio</span>
+          </span>
+          <h1 className="font-serif-display text-2xl sm:text-[26px] font-bold leading-snug">
+            Sua padaria, sob seu olhar.
+          </h1>
+          <p className="text-xs text-[#D9C8BC] leading-relaxed">
+            Indicadores patrimoniais, Curva ABC, caixa, acessos da equipe e emissão de PDF Oficial A4.
+          </p>
+        </div>
 
+        <div className="grid grid-cols-2 gap-2">
+          <Botao
+            variante="escuroSuave"
+            tamanho="md"
+            icone={UserPlus}
+            onClick={() => navegar('usuarios')}
+            className="border border-[#644638] w-full"
+          >
+            Gerenciar Acessos ({perfis.length})
+          </Botao>
           <Botao
             variante="acento"
             tamanho="md"
             icone={FileText}
             onClick={() => abrirPdf('executivo')}
-            className="shadow-md shrink-0"
+            className="shadow-md w-full"
           >
-            Emitir PDF A4
+            Emitir PDF Oficial A4
           </Botao>
         </div>
 
@@ -3287,7 +3753,7 @@ function TelaPainelDono() {
           <div className="grid grid-cols-3 gap-2">
             {kpis.campeoesMargem.map((prod) => (
               <div key={prod.id} className="bg-[#E6F0E8]/70 border border-[#C5DEC9] rounded-xl p-2.5 text-center">
-                <span className="font-bold text-xs text-[#2C1E18] block truncate">{prod.nome}</span>
+                <span className="font-bold text-xs text-[#2C1E18] block leading-snug break-words">{prod.nome}</span>
                 <span className="font-serif-display font-bold text-base text-[#2F5938]">
                   {formatarNumero(prod.margemPct)}%
                 </span>
@@ -3340,7 +3806,7 @@ function TelaPainelDono() {
               className="bg-[#FAF6F2] rounded-xl p-2.5 border border-[#E5D8CB] flex items-center justify-between gap-2 text-xs"
             >
               <div className="min-w-0 flex-1">
-                <span className="font-bold text-[#2C1E18] block truncate">{prod.nome}</span>
+                <span className="font-bold text-[#2C1E18] block leading-snug break-words">{prod.nome}</span>
                 <span className="text-[10.5px] text-[#6E5A4F]">
                   Lucro: <strong>{formatarMoeda(prod.lucroUnitario)}</strong> · Margem:{' '}
                   <strong className="text-[#2F5938]">{formatarNumero(prod.margemPct)}%</strong>
@@ -3474,7 +3940,7 @@ function TelaConferencia() {
         titulo="Conferência"
         descricao={
           <>
-            Saldos separados: <strong>Vitrine</strong> vs. <strong>Depósito</strong>. Clique 3x rápido em <strong>+</strong> para <strong>+10</strong>.
+            Saldos separados: <strong>Vitrine</strong> vs. <strong>Depósito</strong>. Clique 3x rápido em <strong>+</strong> ou <strong>-</strong> para <strong>+10</strong> ou <strong>-10</strong>.
           </>
         }
         direita={
@@ -3581,7 +4047,7 @@ interface PropsCardConferencia {
   onAbrirPerda: () => void;
 }
 
-/** Card individual da conferência com visual polido e gaveta manual rápida. */
+/** Card individual da conferência com visual polido, responsivo mobile e gaveta manual rápida. */
 function CardProdutoConferencia({
   produto,
   onAbrirPerda,
@@ -3590,7 +4056,9 @@ function CardProdutoConferencia({
     ajustarSaldoVitrine,
     definirSaldoVitrine,
     incrementarComCliqueTriplo,
+    decrementarComCliqueTriplo,
     badgeMaisDezId,
+    badgeMenosDezId,
     comandaAtivaPorProduto,
     tarefaAtivaPorProduto,
     solicitarOuReforcarItem,
@@ -3609,36 +4077,42 @@ function CardProdutoConferencia({
   const tarefaAtivaId = tarefaAtivaPorProduto[produto.id];
 
   return (
-    <article className="bg-[#FFFDFB] rounded-[22px] p-3.5 shadow-[0_4px_14px_rgba(44,30,24,0.05)] border border-[#EBE0D6] transition-all relative">
+    <article className="bg-[#FFFDFB] rounded-[22px] p-3 sm:p-3.5 shadow-[0_4px_14px_rgba(44,30,24,0.05)] border border-[#EBE0D6] transition-all relative">
       {badgeMaisDezId === produto.id && (
         <div className="absolute -top-2.5 right-4 bg-[#2F5938] text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full shadow-md flex items-center gap-1 animate-bounce z-10">
           <Zap className="w-3 h-3" />
           +10 Rápido!
         </div>
       )}
+      {badgeMenosDezId === produto.id && (
+        <div className="absolute -top-2.5 right-4 bg-[#9E4224] text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full shadow-md flex items-center gap-1 animate-bounce z-10">
+          <Zap className="w-3 h-3" />
+          -10 Rápido!
+        </div>
+      )}
 
-      <div className="flex items-center gap-3.5">
+      <div className="flex items-center gap-2.5 sm:gap-3.5">
         <IconeProduto
           iconeKey={produto.iconeKey}
           corFundo={produto.corFundoIcone}
-          tamanho="w-[62px] h-[62px]"
-          tamanhoIcone="w-9 h-9"
+          tamanho="w-14 h-14 sm:w-[62px] sm:h-[62px]"
+          tamanhoIcone="w-8 h-8 sm:w-9 sm:h-9"
         />
 
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
-            <h2 className="font-serif-display text-[18px] font-bold text-[#2C1E18] leading-tight truncate">
+            <h2 className="font-serif-display text-[15.5px] sm:text-[17px] font-bold text-[#2C1E18] leading-snug break-words flex-1 min-w-0">
               {produto.nome}
             </h2>
 
             <Chip tom={ehCozinha ? 'laranja' : 'azul'} icone={ehCozinha ? Flame : Warehouse}>
-              {ehCozinha ? 'Cozinha' : `Depósito: ${formatarNumero(produto.saldoDeposito)}`}
+              {ehCozinha ? 'Cozinha' : `Dep.: ${formatarNumero(produto.saldoDeposito)}`}
             </Chip>
           </div>
 
-          <div className="flex items-center justify-between gap-3 mt-1.5">
+          <div className="flex items-center justify-between gap-2 sm:gap-3 mt-1.5">
             <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-normal text-[#3B2A22] leading-tight mb-1.5">
+              <p className="text-[12px] sm:text-[13px] font-normal text-[#3B2A22] leading-tight mb-1.5">
                 {produto.unidade} · mín. {formatarNumero(produto.minimo)}
               </p>
 
@@ -3659,7 +4133,7 @@ function CardProdutoConferencia({
 
                 {abaixoDoMinimo && !estaZerado && (
                   <div className="mt-1 flex justify-end">
-                    <span className="inline-block px-2 py-0.5 rounded-full text-[10.5px] font-semibold bg-[#F6E4D7] text-[#5C341D]">
+                    <span className="inline-block px-2 py-0.5 rounded-full text-[10px] sm:text-[10.5px] font-semibold bg-[#F6E4D7] text-[#5C341D]">
                       Falta {formatarNumero(falta)}
                     </span>
                   </div>
@@ -3667,19 +4141,24 @@ function CardProdutoConferencia({
               </div>
             </div>
 
-            {/* Stepper Vitrine */}
+            {/* Stepper Vitrine (Clique 3x rápido em - ou + para -10 ou +10) */}
             <div className={cx('flex items-center rounded-2xl p-0.5 transition-colors shrink-0', estaZerado && 'bg-[#F5E1DA]')}>
               <button
                 type="button"
-                onClick={() => ajustarSaldoVitrine(produto.id, -produto.passo)}
+                onClick={() =>
+                  decrementarComCliqueTriplo(produto.id, produto.passo, (deltaNegativo) =>
+                    ajustarSaldoVitrine(produto.id, deltaNegativo)
+                  )
+                }
                 disabled={produto.saldoVitrine <= 0}
-                className="w-11 h-11 rounded-[15px] bg-[#BC9E84] hover:bg-[#B09074] disabled:opacity-40 text-[#2C1E18] flex items-center justify-center active:scale-95 transition-all"
+                className="w-10 h-10 sm:w-11 sm:h-11 rounded-[15px] bg-[#BC9E84] hover:bg-[#B09074] disabled:opacity-40 text-[#2C1E18] flex items-center justify-center active:scale-95 transition-all"
+                title="Clique 3x rápido para diminuir -10"
                 aria-label={`Diminuir ${produto.nome}`}
               >
                 <Minus className="w-5 h-5 stroke-[2]" />
               </button>
 
-              <div className="w-14 flex flex-col items-center justify-center px-1">
+              <div className="w-12 sm:w-14 flex flex-col items-center justify-center px-1">
                 <button
                   type="button"
                   onClick={() => {
@@ -3691,7 +4170,7 @@ function CardProdutoConferencia({
                 >
                   <span
                     className={cx(
-                      'font-bold text-[22px] leading-none tabular-nums tracking-tight group-hover:underline',
+                      'font-bold text-[20px] sm:text-[22px] leading-none tabular-nums tracking-tight group-hover:underline',
                       estaZerado
                         ? 'text-[#B84A27]'
                         : produto.saldoVitrine > produto.minimo
@@ -3702,7 +4181,7 @@ function CardProdutoConferencia({
                     {formatarNumero(produto.saldoVitrine)}
                   </span>
                   {estaZerado && (
-                    <span className="text-[10px] font-semibold text-[#9E4224] leading-tight mt-0.5">
+                    <span className="text-[9.5px] sm:text-[10px] font-semibold text-[#9E4224] leading-tight mt-0.5">
                       Falta {formatarNumero(falta)}
                     </span>
                   )}
@@ -3716,7 +4195,7 @@ function CardProdutoConferencia({
                     ajustarSaldoVitrine(produto.id, delta)
                   )
                 }
-                className="w-11 h-11 rounded-[15px] bg-[#BC9E84] hover:bg-[#B09074] text-[#2C1E18] flex items-center justify-center active:scale-95 transition-all"
+                className="w-10 h-10 sm:w-11 sm:h-11 rounded-[15px] bg-[#BC9E84] hover:bg-[#B09074] text-[#2C1E18] flex items-center justify-center active:scale-95 transition-all"
                 title="Clique 3x rápido para adicionar +10"
                 aria-label={`Aumentar ${produto.nome}`}
               >
@@ -3729,7 +4208,7 @@ function CardProdutoConferencia({
 
       {/* Gaveta de edição manual rápida */}
       {editando && (
-        <div className="mt-3 pt-3 border-t border-[#EFE6DD] bg-[#FAF6F2] -mx-3.5 -mb-3.5 p-3.5 rounded-b-[22px] space-y-2.5">
+        <div className="mt-3 pt-3 border-t border-[#EFE6DD] bg-[#FAF6F2] -mx-3 sm:-mx-3.5 -mb-3 sm:-mb-3.5 p-3 sm:p-3.5 rounded-b-[22px] space-y-2.5">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-bold text-[#4A3228]">
               Definir Saldo da Vitrine (Valida variações atípicas):
@@ -3769,11 +4248,12 @@ function CardProdutoConferencia({
               Aplicar
             </Botao>
 
-            <div className="flex items-center gap-1 ml-auto">
+            <div className="flex items-center gap-1 ml-auto flex-wrap">
               {[
                 { label: '=10', acao: () => definirSaldoVitrine(produto.id, 10) },
                 { label: '=30', acao: () => definirSaldoVitrine(produto.id, 30) },
                 { label: '=50', acao: () => definirSaldoVitrine(produto.id, 50) },
+                { label: '-10', acao: () => ajustarSaldoVitrine(produto.id, -10) },
                 { label: '+10', acao: () => ajustarSaldoVitrine(produto.id, 10) },
                 { label: '+30', acao: () => ajustarSaldoVitrine(produto.id, 30) },
               ].map((atalho) => (
@@ -3791,8 +4271,8 @@ function CardProdutoConferencia({
         </div>
       )}
 
-      {/* Rodapé do card: pedir fornecimento ou registrar perda */}
-      <div className="mt-2.5 pt-2 border-t border-[#F4ECE3] flex items-center justify-between gap-2">
+      {/* Rodapé do card: pedir fornecimento, atalhos -10 / +10 ou registrar perda */}
+      <div className="mt-2.5 pt-2 border-t border-[#F4ECE3] flex items-center justify-between gap-1.5 flex-wrap">
         <button
           type="button"
           onClick={() => solicitarOuReforcarItem(produto)}
@@ -3810,33 +4290,43 @@ function CardProdutoConferencia({
           {ehCozinha ? (
             comandaAtivaId ? (
               <>
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                Já pedido (#{comandaAtivaId}) · Reforçar?
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                <span>Já pedido (#{comandaAtivaId}) · Reforçar?</span>
               </>
             ) : (
               <>
-                <Flame className="w-3.5 h-3.5" />
-                Pedir Fornada (Cozinha)
+                <Flame className="w-3.5 h-3.5 shrink-0" />
+                <span>Pedir Fornada (Cozinha)</span>
               </>
             )
           ) : tarefaAtivaId ? (
             <>
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              Na Guia de Frios · Reforçar?
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+              <span>Na Guia de Frios · Reforçar?</span>
             </>
           ) : (
             <>
-              <Snowflake className="w-3.5 h-3.5" />
-              Pedir do Depósito ({formatarNumero(produto.saldoDeposito)} disp.)
+              <Snowflake className="w-3.5 h-3.5 shrink-0" />
+              <span>Pedir Depósito ({formatarNumero(produto.saldoDeposito)} disp.)</span>
             </>
           )}
         </button>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1 ml-auto">
+          <button
+            type="button"
+            disabled={produto.saldoVitrine <= 0}
+            onClick={() => ajustarSaldoVitrine(produto.id, -10)}
+            className="text-[11px] font-bold text-[#6E3B26] bg-[#F5E8E2] hover:bg-[#EAD4C9] disabled:opacity-40 px-2 py-1 rounded-lg transition-colors"
+            title="Diminuir -10 rapidamente"
+          >
+            -10
+          </button>
           <button
             type="button"
             onClick={() => ajustarSaldoVitrine(produto.id, 10)}
             className="text-[11px] font-bold text-[#4A3228] bg-[#F3EAE0] hover:bg-[#E5D7C8] px-2 py-1 rounded-lg transition-colors"
+            title="Adicionar +10 rapidamente"
           >
             +10
           </button>
@@ -4004,6 +4494,7 @@ function TelaAbastecimentoInsumos() {
     sincronizarGuiaInsumos,
     alterarQtdTarefa,
     incrementarComCliqueTriplo,
+    decrementarComCliqueTriplo,
     transferirDepositoParaVitrine,
     produtoPorId,
     navegar,
@@ -4012,10 +4503,10 @@ function TelaAbastecimentoInsumos() {
   return (
     <div className="space-y-4">
       <CabecalhoTela
-        sobretitulo="Transferência Controlada: Depósito ➔ Vitrine"
+        sobretitulo="Abastecimento Depósito ➔ Vitrine (Frios & Bebidas)"
         corSobretitulo="azul"
         icone={Snowflake}
-        titulo="Abastecimento de Frios & Bebidas"
+        titulo="Vitrine"
         descricao={
           <>
             Cada confirmação desconta do <strong>Saldo do Depósito</strong> e soma no{' '}
@@ -4095,8 +4586,13 @@ function TelaAbastecimentoInsumos() {
                   <div className="flex items-center gap-1.5 bg-[#F5EFEA] p-1 rounded-xl border border-[#E2D5C8]">
                     <button
                       type="button"
-                      onClick={() => alterarQtdTarefa(tarefa.id, (q) => Math.max(1, q - 1))}
+                      onClick={() =>
+                        decrementarComCliqueTriplo(`ins-${tarefa.id}`, 1, (deltaNegativo) =>
+                          alterarQtdTarefa(tarefa.id, (q) => Math.max(1, q + deltaNegativo))
+                        )
+                      }
                       className="w-8 h-8 rounded-lg bg-[#BC9E84] text-[#2C1E18] flex items-center justify-center hover:bg-[#B09074] transition-colors"
+                      title="Clique 3x rápido para diminuir -10"
                     >
                       <Minus className="w-4 h-4" />
                     </button>
@@ -4156,6 +4652,7 @@ function TelaNotaFiscal() {
     ehProprietario,
     produtoPorId,
     incrementarComCliqueTriplo,
+    decrementarComCliqueTriplo,
   } = useSkina();
 
   const [chaveNota, setChaveNota] = useState(CHAVE_NOTA_INICIAL);
@@ -4258,9 +4755,9 @@ function TelaNotaFiscal() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between text-xs pt-1 border-t border-[#4A3228]">
-          <span className="text-[#D9C8BC] truncate">{fornecedor}</span>
-          <Botao variante="escuroSuave" tamanho="sm" icone={Camera} onClick={simularOcr}>
+        <div className="flex items-center justify-between gap-2 text-xs pt-1 border-t border-[#4A3228]">
+          <span className="text-[#D9C8BC] leading-snug break-words">{fornecedor}</span>
+          <Botao variante="escuroSuave" tamanho="sm" icone={Camera} onClick={simularOcr} className="shrink-0">
             {lendoOcr ? 'Lendo OCR...' : 'Simular Leitura OCR'}
           </Botao>
         </div>
@@ -4313,8 +4810,13 @@ function TelaNotaFiscal() {
                   <button
                     type="button"
                     disabled={notaJaProcessada}
-                    onClick={() => alterarQtdEmbalagens(item.id, -1)}
+                    onClick={() =>
+                      decrementarComCliqueTriplo(`nf-${item.id}`, 1, (deltaNegativo) =>
+                        alterarQtdEmbalagens(item.id, deltaNegativo)
+                      )
+                    }
                     className="w-9 h-9 rounded-xl bg-[#BC9E84] disabled:opacity-40 text-[#2C1E18] flex items-center justify-center hover:bg-[#B09074] transition-colors"
+                    title="Clique 3x rápido para diminuir -10"
                   >
                     <Minus className="w-4 h-4" />
                   </button>
@@ -4424,7 +4926,7 @@ function TelaRelatorios() {
             type="button"
             onClick={() => setAbaRelatorio(tab.id as AbaRelatorio)}
             className={cx(
-              'py-2 px-1 rounded-xl text-[11px] font-bold transition-all truncate',
+              'py-2 px-1 rounded-xl text-[10.5px] sm:text-[11px] font-bold transition-all leading-tight text-center',
               abaRelatorio === tab.id ? 'bg-[#FFFDFB] text-[#2C1E18] shadow-2xs' : 'text-[#6E5A4F]'
             )}
           >
@@ -4461,10 +4963,10 @@ function TelaRelatorios() {
                   <div className="flex items-center gap-2.5 min-w-0">
                     <IconeProduto iconeKey={rep.iconeKey} tamanho="w-10 h-10" tamanhoIcone="w-5 h-5" />
                     <div className="min-w-0">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#7A685F] block truncate">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#7A685F] block leading-snug break-words">
                         {rep.categoriaRelatorio} · {rep.origemFluxo}
                       </span>
-                      <h4 className="font-serif-display font-bold text-sm text-[#2C1E18] truncate">{rep.produto}</h4>
+                      <h4 className="font-serif-display font-bold text-sm text-[#2C1E18] leading-snug break-words">{rep.produto}</h4>
                     </div>
                   </div>
 
@@ -4515,7 +5017,7 @@ function TelaRelatorios() {
                     tamanhoIcone="w-5 h-5"
                   />
                   <div className="min-w-0">
-                    <h4 className="font-bold text-sm text-[#2C1E18] truncate">{perda.produto}</h4>
+                    <h4 className="font-bold text-sm text-[#2C1E18] leading-snug break-words">{perda.produto}</h4>
                     <p className="text-xs text-[#7A685F]">
                       Motivo: <strong>{perda.motivo}</strong> · Vitrine: {formatarNumero(perda.antesVitrine)} ➔{' '}
                       {formatarNumero(perda.depoisVitrine)}
@@ -4629,10 +5131,10 @@ function TelaRelatorios() {
 // 8.8 TELA DE PASSAGEM DE TURNO
 // ----------------------------------------------------------------------------
 function TelaPassagemTurno() {
-  const { registrarPassagemTurno } = useSkina();
+  const { registrarPassagemTurno, perfis } = useSkina();
 
-  const [entregando, setEntregando] = useState('Clara Mendes');
-  const [assumindo, setAssumindo] = useState('Mateus Rocha');
+  const [entregando, setEntregando] = useState(perfis[0]?.nome ?? 'Clara Mendes');
+  const [assumindo, setAssumindo] = useState(perfis[1]?.nome ?? 'Mateus Rocha');
   const [checklist, setChecklist] = useState<ChecklistTurno>({
     vitrineConferida: true,
     friosAbastecidos: true,
@@ -4658,7 +5160,7 @@ function TelaPassagemTurno() {
               onChange={(e) => setEntregando(e.target.value)}
               className={ui.input}
             >
-              {PERFIS_RBAC.map((p) => (
+              {perfis.map((p) => (
                 <option key={p.id} value={p.nome}>
                   {p.nome}
                 </option>
@@ -4672,7 +5174,7 @@ function TelaPassagemTurno() {
               onChange={(e) => setAssumindo(e.target.value)}
               className={ui.input}
             >
-              {PERFIS_RBAC.map((p) => (
+              {perfis.map((p) => (
                 <option key={p.id} value={p.nome}>
                   {p.nome}
                 </option>
@@ -4943,12 +5445,12 @@ function TelaCatalogo() {
       {/* Lista Filtrada */}
       <div className="space-y-2">
         {produtosFiltrados.map((p) => (
-          <div key={p.id} className={cx(ui.card, 'p-3 flex items-center justify-between')}>
-            <div className="flex items-center gap-2.5 min-w-0">
+          <div key={p.id} className={cx(ui.card, 'p-3 flex items-center justify-between gap-2')}>
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
               <IconeProduto iconeKey={p.iconeKey} corFundo={p.corFundoIcone} tamanho="w-10 h-10" tamanhoIcone="w-6 h-6" />
-              <div className="min-w-0">
-                <h4 className="font-bold text-xs text-[#2C1E18] truncate">{p.nome}</h4>
-                <span className="text-[10.5px] text-[#6E5A4F] block truncate">
+              <div className="min-w-0 flex-1">
+                <h4 className="font-bold text-xs text-[#2C1E18] leading-snug break-words">{p.nome}</h4>
+                <span className="text-[10.5px] text-[#6E5A4F] block leading-snug break-words">
                   Vitrine: <strong>{formatarNumero(p.saldoVitrine)}</strong> · Depósito:{' '}
                   <strong>{formatarNumero(p.saldoDeposito)}</strong>
                   {ehProprietario && ` · Custo: ${formatarMoeda(p.custoUnitario)}`}
@@ -4972,6 +5474,330 @@ function TelaCatalogo() {
   );
 }
 
+// ----------------------------------------------------------------------------
+// 8.10 TELA DE GESTÃO DE ACESSOS & NOVOS USUÁRIOS (Exclusiva da Dona)
+// ----------------------------------------------------------------------------
+function TelaUsuarios() {
+  const { perfis, perfilAtivo, ehProprietario, salvarUsuario, removerUsuario } = useSkina();
+
+  const [editando, setEditando] = useState<Perfil | null>(null);
+  const [erroForm, setErroForm] = useState('');
+  const [form, setForm] = useState<FormUsuario>(FORM_USUARIO_VAZIO);
+
+  function selecionarModeloPapel(papel: Papel) {
+    if (papel === 'vitrine') {
+      setForm((prev) => ({
+        ...prev,
+        papel: 'vitrine',
+        cargo: prev.cargo || 'Funcionária · Balcão & Vitrine',
+        lancarNotaFiscal: false,
+        gerirCatalogoCustos: false,
+        verFinanceiroCompleto: false,
+      }));
+    } else if (papel === 'estoque') {
+      setForm((prev) => ({
+        ...prev,
+        papel: 'estoque',
+        cargo: prev.cargo === 'Atendente de Balcão & Vitrine' ? 'Estoque & Compras (Depósito)' : prev.cargo,
+        lancarNotaFiscal: true,
+        gerirCatalogoCustos: true,
+        verFinanceiroCompleto: false,
+      }));
+    } else {
+      setForm((prev) => ({
+        ...prev,
+        papel: 'proprietario',
+        cargo: prev.cargo === 'Atendente de Balcão & Vitrine' ? 'Proprietária / Gerência Geral' : prev.cargo,
+        lancarNotaFiscal: true,
+        gerirCatalogoCustos: true,
+        verFinanceiroCompleto: true,
+      }));
+    }
+  }
+
+  function iniciarEdicao(u: Perfil) {
+    setErroForm('');
+    setEditando(u);
+    setForm({
+      nome: u.nome,
+      login: u.login,
+      cargo: u.cargo,
+      telefone: u.telefone,
+      pinPadrao: u.pinPadrao,
+      papel: u.papel,
+      lancarNotaFiscal: u.permissoes.lancarNotaFiscal,
+      gerirCatalogoCustos: u.permissoes.gerirCatalogoCustos,
+      verFinanceiroCompleto: u.permissoes.verFinanceiroCompleto,
+    });
+  }
+
+  function cancelarEdicao() {
+    setErroForm('');
+    setEditando(null);
+    setForm(FORM_USUARIO_VAZIO);
+  }
+
+  function submeter() {
+    const erro = salvarUsuario(form, editando?.id ?? null);
+    if (erro) {
+      setErroForm(erro);
+    } else {
+      cancelarEdicao();
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <CabecalhoTela
+        sobretitulo="Gestão Exclusiva da Proprietária (Dona)"
+        corSobretitulo="acento"
+        titulo="Acessos & Novos Usuários"
+        descricao="Cadastre novos funcionários, informe o celular para envio do código de confirmação e defina quais telas cada pessoa pode acessar."
+      />
+
+      {/* Formulário para Criar ou Editar Acesso de Usuário */}
+      <section className={cx(ui.card, 'p-4 space-y-3')}>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className={ui.tituloSecao}>
+            <UserPlus className="w-4 h-4 text-[#C86D51]" />
+            {editando ? `Editando Acesso: ${editando.nome}` : 'Criar Acesso para Novo Usuário'}
+          </h3>
+          {editando && (
+            <button type="button" onClick={cancelarEdicao} className="text-xs text-[#7A685F] underline">
+              Cancelar edição
+            </button>
+          )}
+        </div>
+
+        {erroForm && (
+          <div className="bg-[#F5E1DA] text-[#8C2D19] px-3 py-2 rounded-xl text-xs font-bold">
+            ⚠️ {erroForm}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <Campo rotulo="Nome Completo da Pessoa" className="sm:col-span-2">
+            <input
+              type="text"
+              placeholder="Ex: Juliana Costa (Funcionária 2)"
+              value={form.nome}
+              onChange={(e) => setForm({ ...form, nome: e.target.value })}
+              className={ui.input}
+            />
+          </Campo>
+
+          <Campo rotulo="Cargo / Função na Padaria">
+            <input
+              type="text"
+              placeholder="Ex: Funcionária 2 · Balcão & Vitrine"
+              value={form.cargo}
+              onChange={(e) => setForm({ ...form, cargo: e.target.value })}
+              className={ui.input}
+            />
+          </Campo>
+
+          <Campo rotulo="Celular (recebe o código SMS)">
+            <input
+              type="tel"
+              placeholder="Ex: (68) 99988-7766"
+              value={form.telefone}
+              onChange={(e) => setForm({ ...form, telefone: e.target.value })}
+              className={ui.input}
+            />
+          </Campo>
+
+          <Campo rotulo="Usuário / Login de Acesso">
+            <input
+              type="text"
+              placeholder="Ex: juliana"
+              value={form.login}
+              onChange={(e) => setForm({ ...form, login: e.target.value })}
+              className={ui.input}
+            />
+          </Campo>
+
+          <Campo rotulo="Senha / PIN de Acesso">
+            <input
+              type="text"
+              maxLength={8}
+              placeholder="Ex: 3333"
+              value={form.pinPadrao}
+              onChange={(e) => setForm({ ...form, pinPadrao: e.target.value })}
+              className={ui.input}
+            />
+          </Campo>
+        </div>
+
+        {/* Seleção de Modelo de Acesso */}
+        <div className="space-y-1.5 pt-1">
+          <span className={ui.rotulo}>Nível de Acesso Sugerido:</span>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { id: 'vitrine' as Papel, titulo: 'Balcão (Restrito)', sub: '3 Abas · Sem Notas/Catálogo' },
+              { id: 'estoque' as Papel, titulo: 'Estoque / Depósito', sub: '4 Abas · Lança NF e Catálogo' },
+              { id: 'proprietario' as Papel, titulo: 'Dona / Gerência', sub: '6 Abas · Acesso Total + PDF' },
+            ].map((mod) => {
+              const ativo = form.papel === mod.id;
+              return (
+                <button
+                  key={mod.id}
+                  type="button"
+                  onClick={() => selecionarModeloPapel(mod.id)}
+                  className={cx(
+                    'p-2.5 rounded-xl border text-left transition-all',
+                    ativo
+                      ? 'bg-[#362218] text-white border-[#362218] shadow-2xs'
+                      : 'bg-[#FAF6F2] text-[#4A3228] border-[#E2D5C8] hover:bg-[#F3EAE0]'
+                  )}
+                >
+                  <span className="font-bold text-xs block leading-snug">{mod.titulo}</span>
+                  <span className={cx('text-[10px] block mt-0.5 leading-snug', ativo ? 'text-[#F5D6B8]' : 'text-[#6E5A4F]')}>
+                    {mod.sub}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Permissões Detalhadas */}
+        <div className="bg-[#FAF6F2] p-3 rounded-xl border border-[#E5D8CB] space-y-2">
+          <span className="text-[10.5px] font-bold uppercase text-[#4A3228] block">
+            Telas & Permissões Liberadas para este Usuário:
+          </span>
+
+          <label className="flex items-center gap-2 text-xs text-[#2F5938] font-semibold">
+            <input type="checkbox" checked disabled className="w-4 h-4 accent-[#2F5938] rounded" />
+            <span>Conferência da Vitrine, Cozinha 80mm e Reposição Depósito➔Vitrine (Padrão)</span>
+          </label>
+
+          <label className="flex items-center gap-2 text-xs text-[#2C1E18] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.lancarNotaFiscal}
+              onChange={(e) => setForm({ ...form, lancarNotaFiscal: e.target.checked })}
+              className="w-4 h-4 accent-[#362218] rounded"
+            />
+            <span>Permitir acesso à aba <strong>Nota Depósito</strong> (Lançar NF-e no estoque)</span>
+          </label>
+
+          <label className="flex items-center gap-2 text-xs text-[#2C1E18] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.gerirCatalogoCustos}
+              onChange={(e) => setForm({ ...form, gerirCatalogoCustos: e.target.checked })}
+              className="w-4 h-4 accent-[#362218] rounded"
+            />
+            <span>Permitir acesso ao botão <strong>Catálogo</strong> (Criar e editar produtos)</span>
+          </label>
+
+          <label className="flex items-center gap-2 text-xs text-[#2C1E18] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.verFinanceiroCompleto}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  verFinanceiroCompleto: e.target.checked,
+                  papel: e.target.checked ? 'proprietario' : form.papel === 'proprietario' ? 'vitrine' : form.papel,
+                  lancarNotaFiscal: e.target.checked ? true : form.lancarNotaFiscal,
+                  gerirCatalogoCustos: e.target.checked ? true : form.gerirCatalogoCustos,
+                })
+              }
+              className="w-4 h-4 accent-[#362218] rounded"
+            />
+            <span>Acesso Total de <strong>Proprietária / Dona</strong> (Relatórios, Finanças, PDF A4 e Usuários)</span>
+          </label>
+        </div>
+
+        <Botao variante="primario" tamanho="lg" disabled={!ehProprietario} onClick={submeter}>
+          {editando ? 'Salvar Alterações do Usuário' : 'Cadastrar Novo Usuário e Liberar Acesso'}
+        </Botao>
+      </section>
+
+      {/* Lista de Usuários Cadastrados */}
+      <div className="space-y-2.5">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-[#6E5A4F] px-1">
+          Usuários com Acesso Cadastrado ({perfis.length}):
+        </h3>
+
+        {perfis.map((u) => {
+          const ehUsuarioLogado = perfilAtivo?.id === u.id;
+          const ehDono = u.papel === 'proprietario';
+
+          return (
+            <div key={u.id} className={cx(ui.card, 'p-4 space-y-2.5')}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="font-serif-display font-bold text-base text-[#2C1E18] leading-snug break-words">
+                      {u.nome}
+                    </h4>
+                    <span className={cx('text-[10px] font-semibold px-2.5 py-0.5 rounded-full border', u.corBadge)}>
+                      {u.cargo}
+                    </span>
+                    {ehUsuarioLogado && <Chip tom="verde">Logado agora</Chip>}
+                  </div>
+
+                  <div className="flex items-center gap-3 flex-wrap mt-1 text-xs text-[#6E5A4F]">
+                    <span className="flex items-center gap-1">
+                      <Smartphone className="w-3.5 h-3.5 text-[#C86D51] shrink-0" />
+                      <span>Celular: <strong>{u.telefone}</strong></span>
+                    </span>
+                    <span>·</span>
+                    <span>Login: <strong className="font-mono">{u.login}</strong></span>
+                    <span>·</span>
+                    <span>Senha: <strong className="font-mono">{u.pinPadrao}</strong></span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <Botao variante="suave" tamanho="sm" onClick={() => iniciarEdicao(u)}>
+                    Editar
+                  </Botao>
+                  {!ehUsuarioLogado && (
+                    <button
+                      type="button"
+                      onClick={() => removerUsuario(u.id)}
+                      className="p-1.5 rounded-lg bg-[#F5E1DA] hover:bg-[#E2B8AA] text-[#8C2D19] transition-colors"
+                      title="Remover acesso deste usuário"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <p className="text-xs text-[#6E5A4F] leading-relaxed break-words">{u.foco}</p>
+
+              <div className="pt-2 border-t border-[#F4ECE3] flex items-center gap-1.5 flex-wrap text-[10.5px] font-semibold">
+                <span className="px-2 py-0.5 rounded-md bg-[#E6F0E8] text-[#2F5938]">
+                  ✓ Vitrine · Cozinha · Reposição
+                </span>
+                {u.permissoes.lancarNotaFiscal ? (
+                  <span className="px-2 py-0.5 rounded-md bg-[#E6EEF2] text-[#264E63]">✓ Nota Depósito</span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-md bg-[#F3EAE0] text-[#8C7A70]">🔒 Sem Nota Depósito</span>
+                )}
+                {u.permissoes.gerirCatalogoCustos ? (
+                  <span className="px-2 py-0.5 rounded-md bg-[#E6EEF2] text-[#264E63]">✓ Catálogo</span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-md bg-[#F3EAE0] text-[#8C7A70]">🔒 Sem Catálogo</span>
+                )}
+                {ehDono && (
+                  <span className="px-2 py-0.5 rounded-md bg-[#FDF3EB] text-[#9C441B]">
+                    👑 Painel Dona · Relatórios · Acessos
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ============================================================================
 // 9. MODAIS GLOBAIS
 // ============================================================================
@@ -4984,7 +5810,10 @@ function ModalPdfOficial() {
   if (!escopoPdf || !perfilAtivo) return null;
 
   return (
-    <div className="fixed inset-0 bg-[#1C130E]/75 backdrop-blur-xs flex flex-col items-center justify-start p-3 sm:p-6 z-50 overflow-y-auto">
+    <div
+      style={{ zIndex: 80 }}
+      className="fixed inset-0 bg-[#1C130E]/75 backdrop-blur-xs flex flex-col items-center justify-start p-3 sm:p-6 z-50 overflow-y-auto"
+    >
       {/* Barra de Controle Superior */}
       <div className="w-full max-w-3xl bg-[#2C1E18] text-white rounded-2xl p-3.5 mb-3 flex flex-wrap items-center justify-between gap-2 shadow-xl border border-[#4A3228]">
         <div className="flex items-center gap-2">
@@ -5364,7 +6193,9 @@ function ConteudoTela() {
     case 'passagem-turno':
       return <TelaPassagemTurno />;
     case 'catalogo':
-      return <TelaCatalogo />;
+      return perfilAtivo?.permissoes.gerirCatalogoCustos ? <TelaCatalogo /> : <TelaConferencia />;
+    case 'usuarios':
+      return ehProprietario ? <TelaUsuarios /> : <TelaConferencia />;
     default:
       return <TelaConferencia />;
   }
@@ -5372,11 +6203,18 @@ function ConteudoTela() {
 
 /** Layout exibido apenas quando há um usuário logado. */
 function LayoutLogado() {
-  const { perfilAtivo } = useSkina();
+  const { perfilAtivo, temComandaUrgente, telaAtual } = useSkina();
   if (!perfilAtivo) return <TelaLogin />;
 
+  const mostrarAlertaUrgente = temComandaUrgente && telaAtual !== 'cozinha';
+
   return (
-    <div className="min-h-screen bg-[#F5EFEA] text-[#2C1E18] font-sans antialiased pb-28">
+    <div
+      className={cx(
+        'min-h-screen bg-[#F5EFEA] text-[#2C1E18] font-sans antialiased overflow-x-hidden',
+        mostrarAlertaUrgente ? 'pb-44' : 'pb-28'
+      )}
+    >
       {/* Estilos globais e regras de impressão para A4 e Térmica 80mm */}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
@@ -5400,22 +6238,22 @@ function LayoutLogado() {
         }
       `}</style>
 
-      {/* Notificação Flutuante Global */}
-      <ToastGlobal />
-
-      {/* Alerta de Comanda Urgente Pulsando */}
-      <AlertaComandaUrgenteFlutuante />
-
       {/* Barra Superior */}
       <BarraSuperior />
 
       {/* Conteúdo da Tela */}
-      <main className="max-w-md mx-auto px-4 pt-4">
+      <main className="max-w-md mx-auto px-3 sm:px-4 pt-3 sm:pt-4 relative z-10">
         <ConteudoTela />
       </main>
 
-      {/* Barra de Navegação Inferior com RBAC Estrito */}
+      {/* Alerta de Comanda Urgente Sempre na Frente (zIndex 55) */}
+      <AlertaComandaUrgenteFlutuante />
+
+      {/* Barra de Navegação Inferior com RBAC Estrito (zIndex 50) */}
       <BarraNavegacao />
+
+      {/* Notificação Flutuante Global no Topo (zIndex 70) */}
+      <ToastGlobal />
 
       {/* Modais Globais do Sistema */}
       <ModalPdfOficial />
