@@ -3074,7 +3074,7 @@ function TelaLogin() {
 // 8.1 CABEÇALHO SUPERIOR E BARRA INFERIOR (100% Responsivos e Sem Sobreposição)
 // ----------------------------------------------------------------------------
 function BarraSuperior() {
-  const { perfilAtivo, perfis, trocarPerfil, turnoAtual, ehProprietario, telaAtual, navegar, sair, abrirPdf } =
+  const { perfilAtivo, perfis, trocarPerfil, turnoAtual, ehProprietario, telaAtual, navegar, sair } =
     useSkina();
   const [gavetaDevAberta, setGavetaDevAberta] = useState(false);
 
@@ -3088,13 +3088,13 @@ function BarraSuperior() {
       className="bg-[#EFE6DD]/95 backdrop-blur-md border-b border-[#E2D5C8] px-3 sm:px-4 py-2.5 sticky top-0 z-40"
     >
       <div className="max-w-md mx-auto space-y-2">
-        {/* Linha 1: Identidade do Usuário Logado + Botão Dev e Sair (Nunca corta nem sobrepõe) */}
+        {/* Linha 1: Identidade do Usuário Logado + Botão Dev e Sair */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
             <button
               type="button"
               onClick={() => navegar(ehProprietario ? 'painel-dono' : 'conferencia')}
-              className="w-8 h-8 rounded-xl bg-[#362218] text-[#FFFDFB] flex items-center justify-center shrink-0 shadow-2xs"
+              className="w-9 h-9 rounded-xl bg-[#362218] text-[#FFFDFB] flex items-center justify-center shrink-0 shadow-2xs"
               title={ehProprietario ? 'Ir para Visão Geral' : 'Ir para Conferência'}
             >
               <IconLogoSkina className="w-4 h-4" />
@@ -3120,7 +3120,7 @@ function BarraSuperior() {
               type="button"
               onClick={() => setGavetaDevAberta(!gavetaDevAberta)}
               className={cx(
-                'px-2 py-1.5 rounded-xl text-[10.5px] font-bold border transition-colors flex items-center gap-1',
+                'px-2.5 py-1.5 rounded-xl text-[10.5px] font-bold border transition-colors flex items-center gap-1',
                 gavetaDevAberta
                   ? 'bg-[#2C1E18] text-[#F5D6B8] border-[#2C1E18]'
                   : 'bg-[#FAF6F2] text-[#5A4940] border-[#D8C8B8] hover:bg-[#F3EAE0]'
@@ -3143,40 +3143,24 @@ function BarraSuperior() {
           </div>
         </div>
 
-        {/* Linha 2: Barra de Ações Rápidas (Separada em linha própria para nunca cortar) */}
-        <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-[#E2D5C8]/80">
-          {ehProprietario && (
-            <Botao
-              variante={telaAtual === 'painel-dono' ? 'primario' : 'contorno'}
-              tamanho="sm"
-              icone={Crown}
-              onClick={() => navegar('painel-dono')}
-              className="px-2.5 py-1"
-            >
-              Visão Geral
-            </Botao>
+        {/* Linha 2: Ações Administrativas e de Turno alinhadas em uma única linha simétrica */}
+        <div
+          className={cx(
+            'grid gap-1.5 pt-1.5 border-t border-[#E2D5C8]/80',
+            ehProprietario
+              ? 'grid-cols-3'
+              : podeMexerCatalogo
+              ? 'grid-cols-2'
+              : 'grid-cols-1'
           )}
-
-          {ehProprietario && (
-            <Botao
-              variante="acento"
-              tamanho="sm"
-              icone={FileText}
-              onClick={() => abrirPdf('executivo')}
-              className="px-2.5 py-1"
-              title="Gerar Relatório Oficial em PDF (A4)"
-            >
-              PDF A4
-            </Botao>
-          )}
-
+        >
           {ehProprietario && (
             <Botao
               variante={telaAtual === 'usuarios' ? 'primario' : 'contorno'}
               tamanho="sm"
               icone={Users}
               onClick={() => navegar('usuarios')}
-              className="px-2.5 py-1"
+              className="w-full px-2 py-1.5 text-[11px]"
               title="Criar ou gerenciar acessos de usuários (Exclusivo Dona)"
             >
               Acessos
@@ -3189,7 +3173,7 @@ function BarraSuperior() {
               tamanho="sm"
               icone={Store}
               onClick={() => navegar('catalogo')}
-              className="px-2.5 py-1"
+              className="w-full px-2 py-1.5 text-[11px]"
               title="Catálogo de Produtos (Disponível apenas para quem tem permissão)"
             >
               Catálogo
@@ -3201,7 +3185,7 @@ function BarraSuperior() {
             tamanho="sm"
             icone={ArrowRightLeft}
             onClick={() => navegar('passagem-turno')}
-            className="px-2.5 py-1 ml-auto"
+            className="w-full px-2 py-1.5 text-[11px]"
           >
             Passagem de Turno
           </Botao>
@@ -3612,7 +3596,7 @@ function ModalImpressaoTermica() {
 // 8.2 VISÃO GERAL (Tela Inicial exclusiva da Proprietária / Dona)
 // ----------------------------------------------------------------------------
 function TelaPainelDono() {
-  const { kpis, abrirPdf, navegar, perfis, atualizarPrecoOuCusto, caixaDia, atualizarCaixa, registrarSangria } =
+  const { kpis, navegar, perfis, atualizarPrecoOuCusto, caixaDia, atualizarCaixa, registrarSangria } =
     useSkina();
   const [sangriaValor, setSangriaValor] = useState('');
   const [sangriaDesc, setSangriaDesc] = useState('');
@@ -3630,7 +3614,7 @@ function TelaPainelDono() {
             Sua padaria, sob seu olhar.
           </h1>
           <p className="text-xs text-[#D9C8BC] leading-relaxed">
-            Indicadores patrimoniais, Curva ABC, caixa, acessos da equipe e emissão de PDF Oficial A4.
+            Indicadores patrimoniais, Curva ABC, caixa, precificação e gestão de acessos da equipe.
           </p>
         </div>
 
@@ -3648,10 +3632,10 @@ function TelaPainelDono() {
             variante="acento"
             tamanho="md"
             icone={FileText}
-            onClick={() => abrirPdf('executivo')}
+            onClick={() => navegar('relatorios')}
             className="shadow-md w-full"
           >
-            Emitir PDF Oficial A4
+            Relatórios & PDF
           </Botao>
         </div>
 
@@ -3711,31 +3695,6 @@ function TelaPainelDono() {
               Bruto: {formatarMoeda(kpis.receitaBrutaCaixa)}
             </span>
           </div>
-        </div>
-      </section>
-
-      {/* Atalhos para PDF A4 */}
-      <section className={cx(ui.card, 'p-4 space-y-2.5')}>
-        <div className="flex items-center justify-between">
-          <h3 className={ui.tituloSecao}>
-            <FileText className="w-4 h-4 text-[#C86D51]" />
-            Central de Documentos Oficiais em PDF (Folha A4)
-          </h3>
-          <Chip tom="verde">Timbrado A4</Chip>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          {DOCUMENTOS_PDF.map((doc) => (
-            <button
-              key={doc.id}
-              type="button"
-              onClick={() => abrirPdf(doc.id)}
-              className="text-left p-2.5 rounded-xl bg-[#FAF6F2] hover:bg-[#F3EAE0] border border-[#E2D5C8] transition-colors"
-            >
-              <span className="font-bold text-xs text-[#2C1E18] block">{doc.titulo}</span>
-              <span className="text-[10.5px] text-[#6E5A4F]">{doc.sub}</span>
-            </button>
-          ))}
         </div>
       </section>
 
@@ -4894,6 +4853,13 @@ function TelaRelatorios() {
     return historicoReposicoes.filter((r) => r.categoriaRelatorio.includes(regra.categoria!));
   }, [historicoReposicoes, filtroMovimento]);
 
+  const escopoDaAbaAtual: EscopoPdf =
+    abaRelatorio === 'turnos'
+      ? 'turno'
+      : abaRelatorio === 'balanco'
+      ? 'balanco'
+      : 'reposicoes';
+
   return (
     <div className="space-y-4">
       <CabecalhoTela
@@ -4902,16 +4868,49 @@ function TelaRelatorios() {
         titulo="Auditoria & Relatórios"
         direita={
           <Botao
-            variante="primario"
+            variante="acento"
             tamanho="sm"
             icone={FileText}
-            onClick={() => abrirPdf('reposicoes')}
-            className="text-[#F5D6B8]"
+            onClick={() => abrirPdf(escopoDaAbaAtual)}
+            className="shadow-xs"
           >
-            Gerar PDF Oficial A4
+            Elaborar PDF A4
           </Botao>
         }
       />
+
+      {/* Central de Elaboração de Documentos Oficiais em PDF (Folha A4) — exclusiva da aba Relatórios */}
+      <section className={cx(ui.card, 'p-4 space-y-2.5')}>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className={ui.tituloSecao}>
+            <FileText className="w-4 h-4 text-[#C86D51]" />
+            Elaboração de Documentos Oficiais em PDF (Folha A4)
+          </h3>
+          <Chip tom="verde">Timbrado A4</Chip>
+        </div>
+        <p className="text-[11.5px] text-[#6E5A4F] leading-snug">
+          Escolha o modelo abaixo para gerar, imprimir ou baixar a folha oficial A4 assinada:
+        </p>
+
+        <div className="grid grid-cols-2 gap-2">
+          {DOCUMENTOS_PDF.map((doc) => (
+            <button
+              key={doc.id}
+              type="button"
+              onClick={() => abrirPdf(doc.id)}
+              className="text-left p-2.5 rounded-xl bg-[#FAF6F2] hover:bg-[#F3EAE0] border border-[#E2D5C8] transition-colors flex flex-col justify-between gap-1 group"
+            >
+              <span className="font-bold text-xs text-[#2C1E18] group-hover:text-[#9C441B] block leading-snug">
+                {doc.titulo}
+              </span>
+              <span className="text-[10.5px] text-[#6E5A4F] flex items-center justify-between gap-1">
+                <span>{doc.sub}</span>
+                <Printer className="w-3 h-3 text-[#C86D51] shrink-0" />
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
 
       {/* Seletor de sub-abas */}
       <div className="grid grid-cols-4 bg-[#E8DDD2] p-1 rounded-2xl gap-1">
